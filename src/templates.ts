@@ -246,78 +246,179 @@ else:
   {
     label: '🎮 테트리스 게임',
     code: `import machine
-import ssd1306
 import time
 import random
-# I2C 핀 설정
-i2c_sda = machine.Pin(21)  # SDA 핀
-i2c_scl = machine.Pin(22)  # SCL 핀
-i2c = machine.I2C(0, sda=i2c_sda, scl=i2c_scl)  # I2C 객체 생성
-# OLED 디스플레이 초기화
-oled_width = 128
-oled_height = 64
-oled = ssd1306.SSD1306_I2C(oled_width, oled_height, i2c)
-# 게임 설정
-board_width = 10
-board_height = 20
-board = [[0] * board_width for _ in range(board_height)]  # 보드 초기화
-tetromino_shapes = [  # 테트로미노 모양 정의
-    [[1, 1, 1], [0, 1, 0]],  # T
-    [[1, 1], [1, 1]],        # O
-    [[1, 1, 1], [1, 0, 0]],  # L
-    [[1, 1, 1], [0, 0, 1]],  # J
-    [[1, 1, 0], [0, 1, 1]],  # S
-    [[0, 1, 1], [1, 1, 0]],  # Z
-    [[1, 1, 1, 1]],          # I
+from machine import Pin, SoftI2C
+import ssd1306
+
+# 1. 하드웨어 설정
+i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+touch_left  = Pin(33, Pin.IN)
+touch_right = Pin(32, Pin.IN)
+touch_rot   = Pin(35, Pin.IN)
+touch_drop  = Pin(34, Pin.IN)
+
+# 2. 게임 영역 및 그래픽 크기 정의 (화면 절반 크기로 확장)
+BOARD_WIDTH = 10
+BOARD_HEIGHT = 20
+
+BLOCK_SIZE_X = 6
+BLOCK_SIZE_Y = 3
+
+OFFSET_X = 2
+OFFSET_Y = 2
+
+# 3. 테트리스 미노(블록) 모양 정의
+SHAPES = [
+    [[1, 1, 1, 1]],
+    [[1, 1, 1], [0, 1, 0]],
+    [[1, 1, 1], [1, 0, 0]],
+    [[1, 1, 1], [0, 0, 1]],
+    [[1, 1], [1, 1]],
+    [[1, 1, 0], [0, 1, 1]],
+    [[0, 1, 1], [1, 1, 0]]
 ]
-# 테트로미노 클래스 정의
-class Tetromino:
-    def __init__(self):
-        self.shape = random.choice(tetromino_shapes)
-        self.x = board_width // 2 - len(self.shape[0]) // 2
-        self.y = 0
-    def rotate(self):
-        self.shape = [list(row) for row in zip(*self.shape[::-1])]  # 시계 방향 회전
-# 게임 루프
-def draw_board():
-    oled.fill(0)  # 화면 지우기
-    for y in range(board_height):
-        for x in range(board_width):
-            if board[y][x]:
-                oled.pixel(x, y, 1)  # 픽셀 그리기
-    oled.show()  # 화면 업데이트
-def place_tetromino(tetromino):
-    for y, row in enumerate(tetromino.shape):
-        for x, cell in enumerate(row):
-            if cell:
-                board[tetromino.y + y][tetromino.x + x] = 1  # 보드에 테트로미노 추가
-def check_collision(tetromino):
-    for y, row in enumerate(tetromino.shape):
-        for x, cell in enumerate(row):
-            if cell:
-                if (tetromino.x + x < 0 or tetromino.x + x >= board_width or 
-                    tetromino.y + y < 0 or tetromino.y + y >= board_height or 
-                    board[tetromino.y + y][tetromino.x + x]):
+
+board = [[0] * BOARD_WIDTH for _ in range(BOARD_HEIGHT)]
+score = 0
+game_over = False
+
+current_piece = None
+piece_x = 0
+piece_y = 0
+
+def get_new_piece():
+    global current_piece, piece_x, piece_y
+    current_piece = random.choice(SHAPES)
+    piece_x = BOARD_WIDTH // 2 - len(current_piece[0]) // 2
+    piece_y = 0
+
+def rotate_piece(shape):
+    return [list(x) for x in zip(*shape[::-1])]
+
+def check_collision(piece, offset_x, offset_y):
+    for r, row in enumerate(piece):
+        for c, val in enumerate(row):
+            if val:
+                new_x = offset_x + c
+                new_y = offset_y + r
+                if new_x < 0 or new_x >= BOARD_WIDTH or new_y >= BOARD_HEIGHT:
+                    return True
+                if new_y >= 0 and board[new_y][new_x]:
                     return True
     return False
-def clear_lines():
-    global board
-    new_board = [row for row in board if any(cell == 0 for cell in row)]  # 비어있는 라인만 남기기
-    cleared_lines = board_height - len(new_board)
-    board = [[0] * board_width for _ in range(cleared_lines)] + new_board  # 새 보드 생성
-# 게임 초기화
-current_tetromino = Tetromino()
-while not check_collision(current_tetromino):
-    draw_board()  # 보드 그리기
-    current_tetromino.y += 1  # 테트로미노 내려오기
-    if check_collision(current_tetromino):
-        current_tetromino.y -= 1  # 충돌 시 원래 위치로 돌아오기
-        place_tetromino(current_tetromino)  # 보드에 테트로미노 배치
-        clear_lines()  # 라인 지우기
-        current_tetromino = Tetromino()  # 새로운 테트로미노 생성
-oled.fill(0)
-oled.text('Game Over', 0, 0)  # 게임 종료 메시지 출력
-oled.show()`,
+
+def lock_piece(piece, offset_x, offset_y):
+    global score
+    for r, row in enumerate(piece):
+        for c, val in enumerate(row):
+            if val and offset_y + r >= 0:
+                board[offset_y + r][offset_x + c] = 1
+
+    new_board = [row for row in board if any(v == 0 for v in row)]
+    lines_cleared = BOARD_HEIGHT - len(new_board)
+    score += lines_cleared * 100
+
+    while len(new_board) < BOARD_HEIGHT:
+        new_board.insert(0, [0] * BOARD_WIDTH)
+
+    for i in range(BOARD_HEIGHT):
+        board[i] = new_board[i]
+
+def draw_game():
+    oled.fill(0)
+
+    game_w = BOARD_WIDTH * BLOCK_SIZE_X + 2
+    game_h = BOARD_HEIGHT * BLOCK_SIZE_Y + 2
+    oled.rect(OFFSET_X - 1, OFFSET_Y - 1, game_w, game_h, 1)
+
+    for r in range(BOARD_HEIGHT):
+        for c in range(BOARD_WIDTH):
+            if board[r][c]:
+                oled.fill_rect(OFFSET_X + c * BLOCK_SIZE_X, OFFSET_Y + r * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
+
+    if current_piece:
+        for r, row in enumerate(current_piece):
+            for c, val in enumerate(row):
+                if val:
+                    py = piece_y + r
+                    px = piece_x + c
+                    if py >= 0:
+                        oled.fill_rect(OFFSET_X + px * BLOCK_SIZE_X, OFFSET_Y + py * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
+
+    text_x = 70
+    oled.text("TETRIS", text_x, 5, 1)
+    oled.text("SCORE:", text_x, 25, 1)
+    oled.text(str(score), text_x, 38, 1)
+
+    if game_over:
+        oled.fill_rect(5, 20, 118, 25, 0)
+        oled.rect(5, 20, 118, 25, 1)
+        oled.text("GAME OVER", 28, 28, 1)
+
+    oled.show()
+
+# 4. 초기 구동 설정
+get_new_piece()
+last_fall_time = time.ticks_ms()
+fall_interval = 600
+
+last_left_state = False
+last_right_state = False
+last_rot_state = False
+last_loop_time = time.ticks_ms()
+
+draw_game()
+
+# 5. 메인 루프
+while not game_over:
+    current_time = time.ticks_ms()
+
+    pressed_left  = (touch_left.value() == 1)
+    pressed_right = (touch_right.value() == 1)
+    pressed_rot   = (touch_rot.value() == 1)
+    pressed_drop  = (touch_drop.value() == 1)
+
+    if pressed_left and not last_left_state:
+        if not check_collision(current_piece, piece_x - 1, piece_y):
+            piece_x -= 1
+    last_left_state = pressed_left
+
+    if pressed_right and not last_right_state:
+        if not check_collision(current_piece, piece_x + 1, piece_y):
+            piece_x += 1
+    last_right_state = pressed_right
+
+    if pressed_rot and not last_rot_state:
+        rotated = rotate_piece(current_piece)
+        if not check_collision(rotated, piece_x, piece_y):
+            current_piece = rotated
+    last_rot_state = pressed_rot
+
+    if pressed_drop:
+        current_fall_interval = 60
+    else:
+        current_fall_interval = fall_interval
+
+    if time.ticks_diff(current_time, last_fall_time) > current_fall_interval:
+        if not check_collision(current_piece, piece_x, piece_y + 1):
+            piece_y += 1
+        else:
+            lock_piece(current_piece, piece_x, piece_y)
+            get_new_piece()
+            if check_collision(current_piece, piece_x, piece_y):
+                game_over = True
+        last_fall_time = current_time
+
+    if time.ticks_diff(current_time, last_loop_time) > 40:
+        draw_game()
+        last_loop_time = current_time
+
+    time.sleep_ms(10)
+
+draw_game()`,
     explanation: `이 코드는 ESP32 보드에 하드웨어 I2C 방식으로 연결된 128x64 해상도의 ssd1306 OLED 디스플레이 상에 테트리스 블록이 떨어지게 구동하는 객체 지향 테트리스 게임 예제입니다.
 
 1. **하드웨어 및 I2C 디스플레이 초기화**:

@@ -22,6 +22,7 @@ import {
   Plus
 } from 'lucide-react';
 import { ESPLoader, Transport } from 'esptool-js';
+import { templates } from './templates';
 
 // Predefined official ssd1306 driver for quick install
 const SSD1306_CODE = `# MicroPython SSD1306 OLED driver, I2C and SPI interfaces
@@ -882,24 +883,23 @@ export default function App() {
               const content = parsed.choices[0]?.delta?.content || '';
               generatedCodeBuffer += content;
               
+              const stripFences = (text: string) => {
+                // 프리앰블 텍스트(코드 펜스 이전 설명문) 제거
+                const fencePos = text.indexOf('```');
+                if (fencePos > 0) text = text.slice(fencePos);
+                // 여는 펜스 제거 (```python, ```micropython 등 모든 언어 태그)
+                text = text.replace(/^```[\w]*\r?\n?/, '');
+                // 닫는 펜스 제거 (뒤에 공백/개행이 있어도 처리)
+                text = text.replace(/```\s*$/, '');
+                return text.trim();
+              };
+
               const parts = generatedCodeBuffer.split('__EXPLANATION__');
               if (parts.length > 1) {
-                let rawCode = parts[0];
-                let rawExpl = parts[1];
-                
-                rawCode = rawCode.replace(/^```(python|py)?\s*/i, '');
-                rawCode = rawCode.replace(/\s*```$/, '');
-                
-                rawExpl = rawExpl.replace(/^```(text|markdown)?\s*/i, '');
-                rawExpl = rawExpl.replace(/\s*```$/, '');
-                
-                setCode(rawCode.trim());
-                setExplanation(rawExpl.trim());
+                setCode(stripFences(parts[0]));
+                setExplanation(parts[1].replace(/^```[\w]*\r?\n?/, '').replace(/```\s*$/, '').trim());
               } else {
-                let rawCode = parts[0];
-                rawCode = rawCode.replace(/^```(python|py)?\s*/i, '');
-                rawCode = rawCode.replace(/\s*```$/, '');
-                setCode(rawCode.trim());
+                setCode(stripFences(parts[0]));
               }
             } catch (jsonErr) {
               // Ignore partial JSON
@@ -1141,7 +1141,14 @@ export default function App() {
                     {suggestions.map((sug, idx) => (
                       <button
                         key={idx}
-                        onClick={() => setPrompt(sug.text)}
+                        onClick={() => {
+                          setPrompt(sug.text);
+                          const matched = templates.find(t => t.label === sug.label);
+                          if (matched) {
+                            setCode(matched.code);
+                            setExplanation(matched.explanation);
+                          }
+                        }}
                         className="text-xs px-2.5 py-1.5 rounded-lg bg-white hover:bg-violet-100/50 border border-violet-100 text-violet-700 font-medium transition-all shadow-sm text-left"
                       >
                         {sug.label}
@@ -1241,13 +1248,13 @@ export default function App() {
                   {editorTab === 'preview' && (
                     <div className="flex-1 flex overflow-auto h-full">
                       {/* Line Numbers */}
-                      <div className="text-slate-400 text-right pr-4 select-none border-r border-slate-100 mr-4 font-mono text-xs flex flex-col justify-start">
+                      <div className="text-slate-400 text-right pr-4 select-none border-r border-slate-100 mr-4 font-mono text-xs flex flex-col justify-start flex-shrink-0">
                         {Array.from({ length: lineCount }, (_, i) => (
                           <div key={i} className="min-h-[1.5rem] leading-normal">{i + 1}</div>
                         ))}
                       </div>
                       {/* Code Block Content */}
-                      <div ref={previewCodeRef} className="flex-1 text-slate-800 overflow-x-auto font-mono text-xs h-full outline-none">
+                      <div ref={previewCodeRef} className="flex-1 text-slate-800 font-mono text-xs outline-none">
                         {colorizePythonLight(code)}
                       </div>
                     </div>

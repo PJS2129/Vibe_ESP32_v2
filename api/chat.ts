@@ -484,54 +484,235 @@ export default async function handler(req: Request) {
       return streamStaticCode(WIFI_CODE);
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey || apiKey === 'your_openai_api_key_here') {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: 'OpenAI API Key가 설정되지 않았습니다. .env.local 파일에 키를 작성해 주세요.' }),
+        JSON.stringify({ error: 'Gemini API Key가 설정되지 않았습니다. .env.local 파일에 GEMINI_API_KEY를 추가해 주세요.' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert MicroPython developer for ESP32.
-Generate only executable, syntactically correct MicroPython code based on the user's natural language request.
-IMPORTANT RULES:
-1. Do NOT wrap the code in markdown blocks (do NOT use \`\`\`python ... \`\`\`). Output ONLY raw python code text.
-2. Provide clean comments in Korean within the code to explain what it does.
-3. Make sure to use correct ESP32 pin configurations. If not specified, use typical ESP32 pins (e.g. GPIO 2 for built-in LED) and comment about it.
-4. If NeoPixel is requested, note that GPIO 14 with 12 pixels is preferred.
-5. If DHT11 is requested, GPIO 27 is preferred, and always wrap readings in a try-except OSError block.
-6. Use standard MicroPython libraries (e.g. machine, time, neopixel, network) and write professional, optimized code.
-7. After the complete MicroPython code block, output exactly the delimiter line '__EXPLANATION__' and then write a comprehensive, clear, step-by-step description/explanation of the generated code in Korean. Do not wrap this explanation in any code blocks.`
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        stream: true,
-      }),
-    });
+    const systemPrompt = `You are an expert MicroPython firmware engineer specializing in ESP32 hardware programming.
+Your task is to generate production-quality, immediately executable MicroPython code.
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      return new Response(JSON.stringify({ error: `OpenAI API returned error: ${errorData}` }), {
-        status: response.status,
+STRICT OUTPUT FORMAT — follow exactly, no exceptions:
+1. Begin your response with the VERY FIRST LINE of Python code. No introduction, no greeting, no "Here's the code".
+2. Do NOT use markdown. No backticks, no code fences (no \`\`\`python or \`\`\`).
+3. After the last line of code, output this exact delimiter on its own line: __EXPLANATION__
+4. After the delimiter, write the explanation in Korean using EXACTLY this two-section structure:
+
+[2-3줄의 전체 동작 요약. 어떤 하드웨어를 어떻게 제어하는지 간결하게.]
+
+**핵심 문법**
+- \`코드\`: 한 줄 설명
+- \`코드\`: 한 줄 설명
+(중요한 문법/API 3~6개만. 당연하거나 단순한 것은 생략.)
+
+EXAMPLE of correct output format:
+import machine
+import time
+led = machine.Pin(2, machine.Pin.OUT)
+while True:
+    led.value(1)
+    time.sleep(0.5)
+__EXPLANATION__
+GPIO 2번 내장 LED를 0.5초 간격으로 켜고 끄는 코드입니다. machine 모듈로 핀을 제어하고 while True 루프로 무한 반복합니다.
+
+**핵심 문법**
+- \`machine.Pin(2, Pin.OUT)\`: GPIO 2번을 출력 모드로 설정
+- \`led.value(1) / led.value(0)\`: 핀에 High(3.3V) / Low(0V) 신호 출력
+- \`time.sleep(0.5)\`: 0.5초 대기
+
+ESP32 / MICROPYTHON HARDWARE CONSTRAINTS (follow strictly):
+- No threading module — use time.ticks_ms() based non-blocking loops instead of blocking sleep in time-sensitive code
+- RAM is ~300KB — avoid large list allocations, heavy string concatenation in loops, or redundant imports
+- Always use SoftI2C (from machine import SoftI2C) over hardware I2C for better reliability
+- Always declare modified globals with the 'global' keyword inside functions
+- Every while True loop must contain time.sleep_ms(10) or equivalent to prevent watchdog timer resets
+- Wrap all hardware I/O (sensors, I2C, SPI, network, file) in try-except blocks
+- Available built-in libraries: machine, time, network, socket, random, os, sys, ubinascii, neopixel, dht
+- Valid ESP32 GPIO pins: 0,2,4,5,12,13,14,15,16,17,18,19,21,22,23,25,26,27,32,33,34,35,36,39
+- GPIO 34, 35, 36, 39 are INPUT ONLY — never configure them as output
+- GPIO 6–11 are reserved for internal flash — never use them
+- Built-in LED is GPIO 2 on standard ESP32 dev boards
+- Use time.ticks_diff(current, last) for elapsed time — never subtract ticks directly (handles 32-bit rollover correctly)
+
+DEFAULT PIN ASSIGNMENTS (use when user does not specify):
+- Built-in LED: GPIO 2
+- DHT11 / DHT22 data pin: GPIO 27
+- NeoPixel data pin: GPIO 14 (default 12 LEDs)
+- I2C SDA: GPIO 21, SCL: GPIO 22
+- PWM / Servo signal: GPIO 13
+
+CODE QUALITY RULES:
+- Define pin numbers and config values as named constants (ALL_CAPS) at the top
+- Initialize all hardware objects before the main loop
+- Add Korean comments that explain WHY, not just what each section does
+- Print [시스템] prefixed status messages to serial for key events and errors
+- For sensor values, validate ranges before using (e.g. temperature between -40 and 80 for DHT11)
+- Prefer concise, flat scripts over unnecessary class abstractions for simple tasks
+
+CRITICAL MICROPYTHON-SPECIFIC RULES:
+- NEVER reimplement existing libraries (ssd1306, dht, neopixel, machine, etc.) — always import them directly
+- The ssd1306 library IS already installed on the board: always use "import ssd1306" and "ssd1306.SSD1306_I2C(...)"
+- NEVER use "if __name__ == '__main__':" — it does not work when code is run via exec(). Write flat top-level code only
+- NEVER use f-strings (f"...") — use str.format() or string concatenation for MicroPython compatibility
+- For geometric calculations (circles, stars, angles), use the math module: import math, math.sin(), math.cos(), math.radians()
+- A proper 5-pointed star requires 10 alternating points (outer/inner radius) at 36-degree intervals using trigonometry`;
+
+    const fewShotExamples = [
+      {
+        role: 'user',
+        parts: [{ text: '내장 LED를 1초마다 깜빡이게 해줘' }]
+      },
+      {
+        role: 'model',
+        parts: [{ text: [
+          'import machine',
+          'import time',
+          '',
+          'LED_PIN = 2',
+          'BLINK_INTERVAL = 1.0',
+          '',
+          'led = machine.Pin(LED_PIN, machine.Pin.OUT)',
+          "print('[시스템] LED 깜빡이기 시작 (GPIO {})'.format(LED_PIN))",
+          'while True:',
+          '    led.value(1)',
+          '    time.sleep(BLINK_INTERVAL)',
+          '    led.value(0)',
+          '    time.sleep(BLINK_INTERVAL)',
+          '__EXPLANATION__',
+          'GPIO 2번 내장 LED를 1초 간격으로 켜고 끄는 코드입니다. machine 모듈로 핀을 출력 모드로 설정하고 while True 루프에서 켜고/끄기를 반복합니다.',
+          '',
+          '**핵심 문법**',
+          '- `machine.Pin(LED_PIN, machine.Pin.OUT)`: GPIO 핀을 출력 모드로 초기화',
+          '- `led.value(1) / led.value(0)`: 핀에 High/Low 신호 출력으로 LED 제어',
+          '- `time.sleep(BLINK_INTERVAL)`: 지정한 초 동안 실행 일시 정지',
+        ].join('\n') }]
+      },
+      {
+        role: 'user',
+        parts: [{ text: 'ssd1306 OLED 화면 중앙에 별을 그려줘' }]
+      },
+      {
+        role: 'model',
+        parts: [{ text: [
+          'import machine',
+          'import math',
+          'import ssd1306',
+          'from machine import SoftI2C, Pin',
+          '',
+          'I2C_SDA = 21',
+          'I2C_SCL = 22',
+          'OLED_W = 128',
+          'OLED_H = 64',
+          'STAR_OUTER_R = 25',
+          'STAR_INNER_R = 10',
+          '',
+          'i2c = SoftI2C(sda=Pin(I2C_SDA), scl=Pin(I2C_SCL))',
+          'oled = ssd1306.SSD1306_I2C(OLED_W, OLED_H, i2c)',
+          '',
+          'def draw_star(cx, cy, outer_r, inner_r, color):',
+          '    points = []',
+          '    for i in range(10):',
+          '        angle = math.radians(-90 + i * 36)',
+          '        r = outer_r if i % 2 == 0 else inner_r',
+          '        points.append((int(cx + r * math.cos(angle)), int(cy + r * math.sin(angle))))',
+          '    for i in range(10):',
+          '        x1, y1 = points[i]',
+          '        x2, y2 = points[(i + 1) % 10]',
+          '        oled.line(x1, y1, x2, y2, color)',
+          '',
+          "print('[시스템] 별 그리기 시작')",
+          'oled.fill(0)',
+          'draw_star(OLED_W // 2, OLED_H // 2, STAR_OUTER_R, STAR_INNER_R, 1)',
+          'oled.show()',
+          "print('[시스템] 완료')",
+          '__EXPLANATION__',
+          'ssd1306 라이브러리로 OLED를 초기화한 뒤 삼각함수로 5각별 10개 꼭지점을 계산해 선으로 연결합니다. 외곽/내부 반지름이 36도마다 교대하여 별 모양이 만들어집니다.',
+          '',
+          '**핵심 문법**',
+          '- `SoftI2C(sda=Pin(21), scl=Pin(22))`: 소프트웨어 I2C 버스 초기화',
+          '- `ssd1306.SSD1306_I2C(W, H, i2c)`: 설치된 라이브러리로 OLED 객체 생성 (직접 구현 금지)',
+          '- `math.radians(-90 + i*36)`: 각도를 라디안으로 변환, 꼭대기부터 36도 간격',
+          '- `i % 2 == 0`: 짝수=외곽, 홀수=내부로 교대하여 별 윤곽 생성',
+          '- `oled.line(x1,y1,x2,y2,1)`: 두 꼭지점 사이를 흰색 선으로 연결',
+        ].join('\n') }]
+      },
+      {
+        role: 'user',
+        parts: [{ text: prompt }]
+      }
+    ];
+
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${apiKey}&alt=sse`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: fewShotExamples,
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      }
+    );
+
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.text();
+      return new Response(JSON.stringify({ error: `Gemini API 오류: ${errorData}` }), {
+        status: geminiResponse.status,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    return new Response(response.body, {
+    // Gemini SSE → OpenAI SSE 포맷으로 변환 (프론트엔드 파싱 호환)
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    (async () => {
+      const reader = geminiResponse.body!.getReader();
+      let buffer = '';
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            const dataVal = trimmed.slice(6).trim();
+            if (!dataVal || dataVal === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(dataVal);
+              const parts = parsed.candidates?.[0]?.content?.parts || [];
+              // thinking 토큰 제외하고 실제 텍스트만 합산
+              const text = parts
+                .filter((p: any) => !p.thought)
+                .map((p: any) => p.text || '')
+                .join('');
+              if (text) {
+                const openaiFormat = { choices: [{ delta: { content: text } }] };
+                await writer.write(encoder.encode(`data: ${JSON.stringify(openaiFormat)}\n\n`));
+              }
+            } catch {}
+          }
+        }
+      } finally {
+        await writer.write(encoder.encode('data: [DONE]\n\n'));
+        await writer.close();
+      }
+    })();
+
+    return new Response(readable, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
