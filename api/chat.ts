@@ -236,6 +236,188 @@ __EXPLANATION__
    - 전송을 완료한 후 \`conn.close()\`로 개별 세션 연결 소켓을 종료하여 리소스를 해제합니다.
 `;
 
+const TETRIS_CODE = `import machine
+import time
+import random
+from machine import Pin, SoftI2C
+import ssd1306
+# 1. 하드웨어 설정
+i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+touch_left  = Pin(33, Pin.IN)
+touch_right = Pin(32, Pin.IN)
+touch_rot   = Pin(35, Pin.IN)
+touch_drop  = Pin(34, Pin.IN)
+# 2. 게임 영역 및 그래픽 크기 정의 (화면 절반 크기로 확장)
+BOARD_WIDTH = 10
+BOARD_HEIGHT = 20
+# 가로를 6픽셀로 늘려 10칸 합산 60픽셀(화면 반)을 차게 만듭니다.
+BLOCK_SIZE_X = 6  
+BLOCK_SIZE_Y = 3  # 세로는 OLED 높이(64)에 맞추어 3픽셀 유지 (20칸 * 3 = 60픽셀)
+OFFSET_X = 2
+OFFSET_Y = 2
+# 3. 테트리스 미노(블록) 모양 정의
+SHAPES = [
+    [[1, 1, 1, 1]], 
+    [[1, 1, 1], [0, 1, 0]], 
+    [[1, 1, 1], [1, 0, 0]], 
+    [[1, 1, 1], [0, 0, 1]], 
+    [[1, 1], [1, 1]], 
+    [[1, 1, 0], [0, 1, 1]], 
+    [[0, 1, 1], [1, 1, 0]]  
+]
+board = [[0] * BOARD_WIDTH for _ in range(BOARD_HEIGHT)]
+score = 0
+game_over = False
+current_piece = None
+piece_x = 0
+piece_y = 0
+def get_new_piece():
+    global current_piece, piece_x, piece_y
+    current_piece = random.choice(SHAPES)
+    piece_x = BOARD_WIDTH // 2 - len(current_piece[0]) // 2
+    piece_y = 0
+def rotate_piece(shape):
+    return [list(x) for x in zip(*shape[::-1])]
+def check_collision(piece, offset_x, offset_y):
+    for r, row in enumerate(piece):
+        for c, val in enumerate(row):
+            if val:
+                new_x = offset_x + c
+                new_y = offset_y + r
+                if new_x < 0 or new_x >= BOARD_WIDTH or new_y >= BOARD_HEIGHT:
+                    return True
+                if new_y >= 0 and board[new_y][new_x]:
+                    return True
+    return False
+def lock_piece(piece, offset_x, offset_y):
+    global score
+    for r, row in enumerate(piece):
+        for c, val in enumerate(row):
+            if val and offset_y + r >= 0:
+                board[offset_y + r][offset_x + c] = 1
+                
+    new_board = [row for row in board if any(v == 0 for v in row)]
+    lines_cleared = BOARD_HEIGHT - len(new_board)
+    score += lines_cleared * 100
+    
+    while len(new_board) < BOARD_HEIGHT:
+        new_board.insert(0, [0] * BOARD_WIDTH)
+        
+    for i in range(BOARD_HEIGHT):
+        board[i] = new_board[i]
+def draw_game():
+    oled.fill(0)
+    
+    # 변경된 블록 크기에 맞춰 게임 테두리 계산 (가로 10칸 * 6픽셀 = 60픽셀)
+    game_w = BOARD_WIDTH * BLOCK_SIZE_X + 2
+    game_h = BOARD_HEIGHT * BLOCK_SIZE_Y + 2
+    oled.rect(OFFSET_X - 1, OFFSET_Y - 1, game_w, game_h, 1)
+    
+    # 고정된 블록 그리기
+    for r in range(BOARD_HEIGHT):
+        for c in range(BOARD_WIDTH):
+            if board[r][c]:
+                # 채워지는 블록 간의 구분을 위해 테두리 1픽셀씩 여백 분리
+                oled.fill_rect(OFFSET_X + c * BLOCK_SIZE_X, OFFSET_Y + r * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
+                
+    # 현재 조작 중인 블록 그리기
+    if current_piece:
+        for r, row in enumerate(current_piece):
+            for c, val in enumerate(row):
+                if val:
+                    py = piece_y + r
+                    px = piece_x + c
+                    if py >= 0:
+                        oled.fill_rect(OFFSET_X + px * BLOCK_SIZE_X, OFFSET_Y + py * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
+                        
+    # 우측 UI 텍스트 위치 조정 (왼쪽 절반이 차서 X좌표를 70으로 이동)
+    text_x = 70
+    oled.text("TETRIS", text_x, 5, 1)
+    oled.text("SCORE:", text_x, 25, 1)
+    oled.text(str(score), text_x, 38, 1)
+    
+    if game_over:
+        oled.fill_rect(5, 20, 118, 25, 0)
+        oled.rect(5, 20, 118, 25, 1)
+        oled.text("GAME OVER", 28, 28, 1)
+        
+    oled.show()
+# 4. 초기 구동 설정
+get_new_piece()
+last_fall_time = time.ticks_ms()
+fall_interval = 600  
+last_left_state = False
+last_right_state = False
+last_rot_state = False
+last_loop_time = time.ticks_ms()
+# 첫 화면 렌더링
+draw_game()
+# 5. 메인 루프
+while not game_over:
+    current_time = time.ticks_ms()
+    
+    # 터치 센서 값 동기화
+    pressed_left  = (touch_left.value() == 1)
+    pressed_right = (touch_right.value() == 1)
+    pressed_rot   = (touch_rot.value() == 1)
+    pressed_drop  = (touch_drop.value() == 1)
+    # 왼쪽 이동
+    if pressed_left and not last_left_state:
+        if not check_collision(current_piece, piece_x - 1, piece_y):
+            piece_x -= 1
+    last_left_state = pressed_left
+    # 오른쪽 이동
+    if pressed_right and not last_right_state:
+        if not check_collision(current_piece, piece_x + 1, piece_y):
+            piece_x += 1
+    last_right_state = pressed_right
+    # 회전
+    if pressed_rot and not last_rot_state:
+        rotated = rotate_piece(current_piece)
+        if not check_collision(rotated, piece_x, piece_y):
+            current_piece = rotated
+    last_rot_state = pressed_rot
+    # 소프트 드롭
+    if pressed_drop:
+        current_fall_interval = 60
+    else:
+        current_fall_interval = fall_interval
+    # 자동 하강
+    if time.ticks_diff(current_time, last_fall_time) > current_fall_interval:
+        if not check_collision(current_piece, piece_x, piece_y + 1):
+            piece_y += 1
+        else:
+            lock_piece(current_piece, piece_x, piece_y)
+            get_new_piece()
+            if check_collision(current_piece, piece_x, piece_y):
+                game_over = True
+        last_fall_time = current_time
+    # 디스플레이 갱신 (약 25 FPS 제한)
+    if time.ticks_diff(current_time, last_loop_time) > 40:
+        draw_game()
+        last_loop_time = current_time
+        
+    time.sleep_ms(10)
+# 게임 오버
+draw_game()
+__EXPLANATION__
+이 코드는 ESP32 보드에 SoftI2C 방식으로 연결된 128x64 해상도의 ssd1306 OLED 디스플레이와 4개의 디지털 입력 핀을 사용하여 작동하는 미니 테트리스 게임 예제입니다.
+
+1. **디바이스 초기화 및 하드웨어 설정**:
+   - \`sda=Pin(21)\`, \`scl=Pin(22)\` 핀을 이용해 I2C 버스를 설정하고 ssd1306 OLED 디스플레이 드라이버를 생성합니다.
+   - \`Pin(33)\`, \`Pin(32)\`, \`Pin(35)\`, \`Pin(34)\`을 각각 디지털 입력(IN) 모드로 설정하여 좌, 우, 회전, 소프트 드롭의 조작 스위치(터치 패드 또는 버튼) 입력을 판별합니다.
+
+2. **게임 공간 및 렌더링 방식 최적화 (화면 절반 크기 확장)**:
+   - 가로 10칸, 세로 20칸의 테트리스 격자 보드 데이터를 2차원 배열(\`board\`)로 관리합니다.
+   - OLED 디스플레이의 좌측 절반(60픽셀 너비)을 가득 채우도록 블록당 가로 크기(\`BLOCK_SIZE_X\`)를 6픽셀, 세로 크기(\`BLOCK_SIZE_Y\`)를 3픽셀로 설계해 화면을 크게 그립니다.
+   - 우측의 나머지 68픽셀 영역에는 "TETRIS", 현재 스코어(SCORE), 게임오버(GAME OVER) 화면 등의 정보 텍스트를 정렬해 띄웁니다.
+
+3. **조작 제어 및 프레임 제한 루프**:
+   - \`random.choice\`를 이용해 무작위로 테트리스 블록을 지속 스폰하고 90도 회전 연산(\`zip(*shape[::-1])\`) 및 벽/블록 충돌 감지 연산을 동반합니다.
+   - \`time.ticks_ms()\` 타이머를 활용하여 블록의 자동 하강 주기와 화면 주사율 제한(약 25 FPS)을 제어하고, 소프트 드롭 버튼을 길게 터치 시 하강 주기를 단축시킵니다.
+`;
+
 // Helper to stream static code block chunk by chunk simulating OpenAI SSE
 function streamStaticCode(code: string) {
   const encoder = new TextEncoder();
@@ -280,6 +462,10 @@ export default async function handler(req: Request) {
     }
 
     const cleanPrompt = prompt.toLowerCase().replace(/\s+/g, '');
+    
+    if (cleanPrompt.includes('테트리스') || cleanPrompt.includes('tetris') || cleanPrompt.includes('게임')) {
+      return streamStaticCode(TETRIS_CODE);
+    }
     
     // Check specific/complex modules first to prevent general keywords (like wifi) from intercepting them
     if (cleanPrompt.includes('dht11') || cleanPrompt.includes('온습도') || cleanPrompt.includes('dht') || cleanPrompt.includes('27번')) {
