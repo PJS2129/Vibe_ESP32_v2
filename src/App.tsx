@@ -149,10 +149,26 @@ class TCS34725:
             raise RuntimeError("Could not find TCS34725 sensor. ID: " + hex(sensor_id))
         # Power ON (0x01) and RGBC enable (0x02) = 0x03
         self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
-        # Set integration time (24ms)
-        self.i2c.writeto_mem(self.address, 0x81, b'\\xF6')
-        # Set gain (4x)
-        self.i2c.writeto_mem(self.address, 0x8F, b'\\x01')
+        self.integration_time(24)
+        self.gain(4)
+
+    def integration_time(self, value=None):
+        if value is None:
+            return getattr(self, '_integration_time', 24.0)
+        reg = 256 - int(value / 2.4)
+        reg = min(max(reg, 0), 255)
+        self.i2c.writeto_mem(self.address, 0x81, bytes([reg]))
+        self._integration_time = value
+
+    def gain(self, value=None):
+        if value is None:
+            return getattr(self, '_gain', 4)
+        gains = {1: 0x00, 4: 0x01, 16: 0x02, 60: 0x03}
+        if value not in gains:
+            raise ValueError("Gain must be 1, 4, 16, or 60")
+        reg = gains[value]
+        self.i2c.writeto_mem(self.address, 0x8F, bytes([reg]))
+        self._gain = value
 
     def read(self, raw=True):
         # Read 8 bytes: Clear, Red, Green, Blue (0x14 | 0x80 = 0x94)
@@ -576,7 +592,7 @@ export default function App() {
       }
 
       // 2. Loop write in chunk sizes to prevent buffer overflows
-      const chunkSize = 256;
+      const chunkSize = 128;
       for (let i = 0; i < base64Data.length; i += chunkSize) {
         const chunk = base64Data.substring(i, i + chunkSize);
         const mode = i === 0 ? 'wb' : 'ab';
@@ -697,7 +713,7 @@ export default function App() {
         }
 
         // 3. Write in chunks
-        const chunkSize = 256;
+        const chunkSize = 128;
         for (let i = 0; i < base64Data.length; i += chunkSize) {
           const chunk = base64Data.substring(i, i + chunkSize);
           const mode = i === 0 ? 'wb' : 'ab';

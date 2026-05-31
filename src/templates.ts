@@ -563,6 +563,10 @@ import time
 i2c = SoftI2C(sda=Pin(17), scl=Pin(16))
 sensor = TCS34725(i2c)
 
+# 조도 감도 및 정확도 향상을 위한 설정 반영
+sensor.gain(1)
+sensor.integration_time(240)
+
 # NeoPixel 설정 (GPIO 14번, 12개 LED)
 np = neopixel.NeoPixel(Pin(14, Pin.OUT), 12)
 
