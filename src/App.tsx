@@ -1655,23 +1655,34 @@ export default function App() {
                     </div>
 
                      {/* Predefined library quick install buttons */}
-                    <div className="bg-white p-3 border border-emerald-100 rounded-xl flex flex-col gap-2 shadow-sm">
+                    <div className="bg-white p-3 border border-emerald-100 rounded-xl flex flex-col gap-3 shadow-sm">
                       <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">인기 센서 라이브러리 원클릭 설치</span>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() => installPresetLibrary('ssd1306.py', SSD1306_CODE)}
-                          disabled={isUploadingFile}
-                          className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
-                        >
-                          ⚙️ ssd1306.py (OLED 디스플레이) 설치
-                        </button>
-                        <button
-                          onClick={() => installPresetLibrary('tcs34725.py', TCS34725_CODE)}
-                          disabled={isUploadingFile}
-                          className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
-                        >
-                          ⚙️ tcs34725.py (컬러센서) 설치
-                        </button>
+                      <div className="flex flex-col gap-2.5">
+                        <div className="flex flex-col gap-1">
+                          <button
+                            onClick={() => installPresetLibrary('ssd1306.py', SSD1306_CODE)}
+                            disabled={isUploadingFile}
+                            className="w-full flex items-center justify-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+                          >
+                            ⚙️ ssd1306.py (OLED 디스플레이) 설치
+                          </button>
+                          <span className="text-[10px] text-slate-400 pl-1">
+                            * 사용 추천 템플릿: 🎮 테트리스 게임, 🌤️ 서울 날씨 & OLED & NeoPixel
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-1 border-t border-emerald-50 pt-2">
+                          <button
+                            onClick={() => installPresetLibrary('tcs34725.py', TCS34725_CODE)}
+                            disabled={isUploadingFile}
+                            className="w-full flex items-center justify-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+                          >
+                            ⚙️ tcs34725.py (컬러센서) 설치
+                          </button>
+                          <span className="text-[10px] text-slate-400 pl-1">
+                            * 사용 추천 템플릿: 🔮 TCS34725 컬러센서 Mood Light
+                          </span>
+                        </div>
                       </div>
                     </div>
 
