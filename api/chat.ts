@@ -234,6 +234,8 @@ __EXPLANATION__
    - \`conn.recv(1024)\`: 웹 브라우저 접속 요청 헤더를 확인합니다.
    - \`conn.send(response)\`: 브라우저에게 "Hello from VibeESP32!"와 한글 소개가 적용된 깔끔한 카드 스타일 HTML 레이아웃 페이지를 반환합니다.
    - 전송을 완료한 후 \`conn.close()\`로 개별 세션 연결 소켓을 종료하여 리소스를 해제합니다.
+`;
+
 const WEATHER_CODE = `# VibeESP32 - 서울 날씨 정보 가져오기 & OLED & NeoPixel 제어
 import machine
 import network
