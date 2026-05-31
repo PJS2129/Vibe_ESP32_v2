@@ -19,10 +19,34 @@ import {
   Download,
   Settings,
   HardDrive,
-  Plus
+  Plus,
+  LogIn,
+  LogOut,
+  History,
+  Clock,
+  User as UserIcon,
+  Info
 } from 'lucide-react';
 import { ESPLoader, Transport } from 'esptool-js';
 import { templates } from './templates';
+
+// Firebase imports
+import { 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import type { User } from 'firebase/auth';
+import { 
+  collection, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy, 
+  onSnapshot 
+} from 'firebase/firestore';
+import { auth, db, googleProvider, isFirebaseConfigured } from './firebase';
 
 // Predefined official ssd1306 driver for quick install
 const SSD1306_CODE = `# MicroPython SSD1306 OLED driver, I2C and SPI interfaces
@@ -182,7 +206,12 @@ class TCS34725:
 
 export default function App() {
   // Main Tab State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tools'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tools' | 'history'>('dashboard');
+
+  // Firebase auth & history states
+  const [user, setUser] = useState<User | null>(null);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
 
   // Web Serial states
   const [port, setPort] = useState<any>(null);
@@ -301,6 +330,173 @@ export default function App() {
     { label: '🔮 TCS34725 컬러센서 Mood Light', text: 'GPIO 17(SDA)과 GPIO 16(SCL)에 연결된 TCS34725 컬러센서에서 컬러 값을 읽어와, 감지한 색상과 동일한 색으로 GPIO 14에 연결된 NeoPixel LED를 켜는 스마트 무드등 코드를 작성해줘.' }
   ];
 
+  // Firebase Google Login & Logout handlers
+  const signInWithGoogle = async () => {
+    if (!isFirebaseConfigured) {
+      alert("Firebase 설정이 활성화되지 않았습니다. 루트 폴더의 .env.local 파일에 설정 정보를 등록해 주세요.");
+      return;
+    }
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      alert(`로그인 실패: ${error.message}`);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setHistoryList([]);
+    } catch (error: any) {
+      console.error("Sign-Out Error:", error);
+    }
+  };
+
+  // Real-time listener for Firestore History Logs or Local Storage Fallback
+  useEffect(() => {
+    if (!user) {
+      // Load from localStorage for non-logged-in users
+      try {
+        const localData = localStorage.getItem('vibe_local_history');
+        if (localData) {
+          setHistoryList(JSON.parse(localData));
+        } else {
+          setHistoryList([]);
+        }
+      } catch (e) {
+        console.error("Failed to parse local history:", e);
+        setHistoryList([]);
+      }
+      setIsLoadingHistory(false);
+      return;
+    }
+
+    setIsLoadingHistory(true);
+    const q = query(
+      collection(db, `users/${user.uid}/history`),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      setHistoryList(list);
+      setIsLoadingHistory(false);
+    }, (error) => {
+      console.error("Firestore history listener error:", error);
+      setIsLoadingHistory(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Auth State Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Save history log helper
+  const saveHistory = async (type: 'generate' | 'run', historyCode: string, historyExplanation: string, historyPrompt?: string) => {
+    // 1. 중복 기록 방지: 직전 저장된 코드와 동일한 코드는 연속으로 저장하지 않음
+    if (historyList.length > 0 && historyList[0].code.trim() === historyCode.trim()) {
+      return;
+    }
+
+    const newLog = {
+      type,
+      prompt: historyPrompt || (type === 'run' ? '직접 작성 및 실행' : 'AI 코드 생성'),
+      code: historyCode,
+      // 2. 단순 실행(run) 로그는 불필요하게 큰 설명글(explanation)을 저장하지 않아 DB 경량화
+      explanation: type === 'run' ? '' : historyExplanation,
+      createdAt: new Date().toISOString()
+    };
+
+    if (!user) {
+      // Save to localStorage for non-logged-in users
+      try {
+        const updatedList = [
+          { id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9), ...newLog },
+          ...historyList
+        ].slice(0, 50); // limit to 50 logs
+        setHistoryList(updatedList);
+        localStorage.setItem('vibe_local_history', JSON.stringify(updatedList));
+      } catch (e) {
+        console.error("Failed to save local history:", e);
+      }
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, `users/${user.uid}/history`), newLog);
+    } catch (error) {
+      console.error("Error saving history:", error);
+    }
+  };
+
+  // Delete history item
+  const deleteHistoryItem = async (historyId: string) => {
+    if (!confirm("정말 이 작업 기록을 삭제하시겠습니까?")) return;
+
+    if (!user) {
+      // Delete from localStorage
+      try {
+        const updatedList = historyList.filter(item => item.id !== historyId);
+        setHistoryList(updatedList);
+        localStorage.setItem('vibe_local_history', JSON.stringify(updatedList));
+      } catch (e) {
+        console.error("Failed to delete local history:", e);
+      }
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/history`, historyId));
+    } catch (error) {
+      console.error("Error deleting history:", error);
+    }
+  };
+
+  // Clear all history logs
+  const clearAllHistory = async () => {
+    if (historyList.length === 0) {
+      alert("삭제할 기록이 없습니다.");
+      return;
+    }
+    if (!confirm(`정말 전체 히스토리 기록(${historyList.length}개)을 모두 삭제하시겠습니까?`)) {
+      return;
+    }
+    
+    if (!user) {
+      // Clear localStorage
+      try {
+        setHistoryList([]);
+        localStorage.removeItem('vibe_local_history');
+        alert("모든 로컬 히스토리 기록이 성공적으로 삭제되었습니다.");
+      } catch (e) {
+        console.error("Failed to clear local history:", e);
+      }
+      return;
+    }
+
+    try {
+      const deletePromises = historyList.map(item => 
+        deleteDoc(doc(db, `users/${user.uid}/history`, item.id))
+      );
+      await Promise.all(deletePromises);
+      alert("모든 기록이 성공적으로 삭제되었습니다.");
+    } catch (error) {
+      console.error("Error clearing all history:", error);
+      alert("전체 히스토리 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
   // Web Serial API - Connect to ESP32
   const connectSerial = async () => {
     try {
@@ -326,10 +522,10 @@ export default function App() {
       keepReadingRef.current = true;
       readFromSerial(selectedPort);
 
-      // Auto-load files on board connection after a brief delay
+      // Auto-load files on board connection after a brief delay (extended to 1200ms for boot safety)
       setTimeout(() => {
         refreshBoardFiles(selectedPort);
-      }, 600);
+      }, 1200);
     } catch (err: any) {
       console.error(err);
       if (err.name !== 'NotFoundError') {
@@ -387,23 +583,20 @@ export default function App() {
 
               // Always accumulate into line buffer for system file parsing (handles fragment splits)
               serialLineBuffer += text;
-              
-              const filesIndex = serialLineBuffer.indexOf('FILES:');
-              if (filesIndex !== -1) {
-                const newlineIndex = serialLineBuffer.indexOf('\n', filesIndex);
-                if (newlineIndex !== -1) {
-                  const line = serialLineBuffer.substring(filesIndex, newlineIndex);
-                  const match = line.match(/FILES:\s*(\[.*?\])/);
-                  if (match) {
-                    try {
-                      const filesJson = match[1].replace(/'/g, '"');
-                      const files = JSON.parse(filesJson);
-                      setBoardFiles(files);
-                    } catch (e) {
-                      console.error('Board files list parse error:', e);
-                    }
-                  }
-                  serialLineBuffer = serialLineBuffer.substring(newlineIndex + 1);
+
+              // Direct regex matching for FILES: [...] regardless of newlines
+              const match = serialLineBuffer.match(/FILES:\s*(\[.*?\])/);
+              if (match) {
+                try {
+                  const filesJson = match[1].replace(/'/g, '"');
+                  const files = JSON.parse(filesJson);
+                  setBoardFiles(files);
+                } catch (e) {
+                  console.error('Board files list parse error:', e);
+                } finally {
+                  // Remove the parsed portion from buffer to prevent reprocessing
+                  const matchEndIndex = match.index! + match[0].length;
+                  serialLineBuffer = serialLineBuffer.substring(matchEndIndex);
                 }
               }
 
@@ -418,14 +611,16 @@ export default function App() {
 
               // 2. Logging to Terminal if not actively uploading raw files
               if (!isUploadingRef.current) {
-                const lines = text.split('\r\n');
+                const lines = text.split(/[\r\n]+/);
                 const filteredLines = lines.filter(line => {
                   const trimmed = line.trim();
                   return (
                     !trimmed.startsWith('===') && 
                     !trimmed.startsWith('>>>') && 
                     trimmed !== '>' &&
-                    trimmed !== 'raw REPL; CTRL-B to exit'
+                    trimmed !== 'raw REPL; CTRL-B to exit' &&
+                    trimmed !== 'OK' &&
+                    !/^[Jj\s]>*$/.test(trimmed)
                   );
                 });
 
@@ -471,7 +666,7 @@ export default function App() {
   };
 
   // Web Serial API - Run MicroPython Code
-  const runCode = async () => {
+  const runCode = async (codeToRun: string = code, explanationToSave: string = explanation, promptToSave: string = prompt) => {
     if (!isConnected || !port) {
       alert('먼저 ESP32 보드를 연결해 주세요.');
       return;
@@ -481,23 +676,53 @@ export default function App() {
       setTerminalOutput('[시스템] 코드를 보드에 전송하고 있습니다...\n');
       
       // Convert code to base64 (supporting Unicode characters in comments)
-      const base64Data = btoa(unescape(encodeURIComponent(code)));
+      const base64Data = btoa(unescape(encodeURIComponent(codeToRun)));
 
-      // Upload the code as '_run.py' using our stable upload function
-      await uploadFileToBoard('_run.py', base64Data);
+      // Upload the code as '_run.py' using our stable upload function (do not refresh board files list here)
+      await uploadFileToBoard('_run.py', base64Data, false);
+
+      // Add a 300ms safety buffer after upload completes and exits Raw REPL
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Clear terminal and start execution log
       setTerminalOutput('[시스템] 코드 전송 완료. 실행을 시작합니다...\n');
       
       // Send Ctrl+C to clear any dirty characters on the normal REPL line before executing
       await writeToSerialPort(new Uint8Array([3]));
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       await writeToSerialPort("exec(open('_run.py', 'rb').read().decode('utf-8'), globals())\r\n");
+      if (auth.currentUser) {
+        saveHistory('run', codeToRun, explanationToSave, promptToSave);
+      }
     } catch (err: any) {
       console.error(err);
       setTerminalOutput(prev => prev + `[시스템] 코드 전송 및 실행 실패: ${err.message}\n`);
     }
+  };
+
+  const handleLoadHistory = (item: any) => {
+    setCode(item.code);
+    setExplanation(item.explanation || '');
+    setPrompt(item.prompt === '직접 작성 및 실행' ? '' : item.prompt || '');
+    setEditorTab('preview');
+    setActiveTab('dashboard');
+  };
+
+  const handleLoadAndRunHistory = async (item: any) => {
+    setCode(item.code);
+    setExplanation(item.explanation || '');
+    setPrompt(item.prompt === '직접 작성 및 실행' ? '' : item.prompt || '');
+    setEditorTab('preview');
+    setActiveTab('dashboard');
+    
+    setTimeout(() => {
+      if (isConnected && port) {
+        runCode(item.code, item.explanation || '', item.prompt || '');
+      } else {
+        alert('코드를 에디터에 로드했습니다. 보드가 연결되면 실행해 주세요.');
+      }
+    }, 150);
   };
 
   // Web Serial API - Stop Execution
@@ -549,7 +774,7 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 400));
       // 4. Send Ctrl+B (Exit Raw REPL)
       await writeToSerialPort(new Uint8Array([2]), activePort);
-      await new Promise(resolve => setTimeout(resolve, 250)); // Wait for REPL to be ready
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for REPL to be ready
       
       setTimeout(() => {
         isUploadingRef.current = false;
@@ -563,7 +788,7 @@ export default function App() {
   };
 
   // MicroPython File Explorer - Upload file over Base64 chunked streams
-  const uploadFileToBoard = async (fileName: string, base64Data: string) => {
+  const uploadFileToBoard = async (fileName: string, base64Data: string, shouldRefresh: boolean = true) => {
     if (!isConnected || !port) {
       alert('보드가 연결되어 있지 않습니다.');
       return;
@@ -591,32 +816,27 @@ export default function App() {
         }
       }
 
-      // 2. Loop write in chunk sizes to prevent buffer overflows
-      const chunkSize = 128;
-      for (let i = 0; i < base64Data.length; i += chunkSize) {
-        const chunk = base64Data.substring(i, i + chunkSize);
-        const mode = i === 0 ? 'wb' : 'ab';
-        const pythonCommand = `import ubinascii\nwith open('${fileName}', '${mode}') as f: f.write(ubinascii.a2b_base64('${chunk}'))\n`;
-        await writeToSerialPort(pythonCommand);
-        await new Promise(resolve => setTimeout(resolve, 150));
-        await writeToSerialPort(new Uint8Array([4])); // execute
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
-
-      // Query board files list directly while in Raw REPL recursively
-      const listCmd = "import os\ndef _list_all(d=''):\n  r = []\n  try:\n    for f in os.listdir(d if d else '.'):\n      p = d + '/' + f if d else f\n      try:\n        os.listdir(p)\n        r.extend(_list_all(p))\n      except:\n        r.append(p)\n  except: pass\n  return r\nprint('FILES:', _list_all())\n";
-      await writeToSerialPort(listCmd);
-      await new Promise(resolve => setTimeout(resolve, 250));
-      await writeToSerialPort(new Uint8Array([4])); // execute
-      await new Promise(resolve => setTimeout(resolve, 400));
+      // 2. Write in one go using a single python execution in Raw REPL to avoid loops and dramatic delays
+      const pythonCommand = `import ubinascii\n` +
+        `b64 = """${base64Data}"""\n` +
+        `with open('${fileName}', 'wb') as f: f.write(ubinascii.a2b_base64(b64.strip()))\n`;
+      await writeToSerialPort(pythonCommand);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await writeToSerialPort(new Uint8Array([4])); // execute write
+      await new Promise(resolve => setTimeout(resolve, 400)); // wait for write to finish
 
       // 3. Send Ctrl+B (Exit Raw REPL)
       await writeToSerialPort(new Uint8Array([2]));
-      await new Promise(resolve => setTimeout(resolve, 250)); // Wait for REPL to be ready
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for REPL to be ready
       
       isUploadingRef.current = false;
       setIsUploadingFile(false);
       setTerminalOutput(prev => prev + `[시스템] 파일 업로드 완료: ${fileName}\n`);
+
+      // 4. Refresh files list synchronously if requested
+      if (shouldRefresh) {
+        await refreshBoardFiles();
+      }
     } catch (err: any) {
       console.error(err);
       isUploadingRef.current = false;
@@ -632,7 +852,7 @@ export default function App() {
     reader.onload = async () => {
       const binaryString = reader.result as string;
       const base64 = btoa(binaryString);
-      await uploadFileToBoard(uploadFile.name, base64);
+      await uploadFileToBoard(uploadFile.name, base64, true);
       setUploadFile(null);
     };
     reader.readAsBinaryString(uploadFile);
@@ -645,7 +865,6 @@ export default function App() {
     const pyFiles: File[] = [];
     for (let i = 0; i < files.length; i++) {
       const name = files[i].name.toLowerCase();
-      // Allow only common text files for MicroPython to avoid crashes
       if (
         name.endsWith('.py') || 
         name.endsWith('.txt') || 
@@ -712,33 +931,27 @@ export default function App() {
           }
         }
 
-        // 3. Write in chunks
-        const chunkSize = 128;
-        for (let i = 0; i < base64Data.length; i += chunkSize) {
-          const chunk = base64Data.substring(i, i + chunkSize);
-          const mode = i === 0 ? 'wb' : 'ab';
-          const pythonCommand = `import ubinascii\nwith open('${relativePath}', '${mode}') as f: f.write(ubinascii.a2b_base64('${chunk}'))\n`;
-          await writeToSerialPort(pythonCommand);
-          await new Promise(resolve => setTimeout(resolve, 150));
-          await writeToSerialPort(new Uint8Array([4])); // execute write chunk
-          await new Promise(resolve => setTimeout(resolve, 150));
-        }
+        // 3. Write in one go using a single python execution in Raw REPL to avoid loops and dramatic delays
+        const pythonCommand = `import ubinascii\n` +
+          `b64 = """${base64Data}"""\n` +
+          `with open('${relativePath}', 'wb') as f: f.write(ubinascii.a2b_base64(b64.strip()))\n`;
+        await writeToSerialPort(pythonCommand);
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await writeToSerialPort(new Uint8Array([4])); // execute write chunk
+        await new Promise(resolve => setTimeout(resolve, 400)); // wait for write to finish
       }
 
-      // 4. Query files list once after all files are uploaded while still in Raw REPL recursively
-      const listCmd = "import os\ndef _list_all(d=''):\n  r = []\n  try:\n    for f in os.listdir(d if d else '.'):\n      p = d + '/' + f if d else f\n      try:\n        os.listdir(p)\n        r.extend(_list_all(p))\n      except:\n        r.append(p)\n  except: pass\n  return r\nprint('FILES:', _list_all())\n";
-      await writeToSerialPort(listCmd);
-      await new Promise(resolve => setTimeout(resolve, 250));
-      await writeToSerialPort(new Uint8Array([4])); // execute list
-      await new Promise(resolve => setTimeout(resolve, 400));
-
-      // 5. Exit Raw REPL
+      // 4. Exit Raw REPL
       await writeToSerialPort(new Uint8Array([2]));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       isUploadingRef.current = false;
       setIsUploadingFile(false);
       setSelectedFolderFiles([]);
       setTerminalOutput(prev => prev + `[시스템] 폴더 업로드 완료!\n`);
+
+      // 5. Refresh files list synchronously
+      await refreshBoardFiles();
     } catch (err: any) {
       console.error(err);
       isUploadingRef.current = false;
@@ -749,35 +962,48 @@ export default function App() {
 
   // MicroPython File Explorer - Quick Install Preset Libraries
   const installPresetLibrary = async (libName: string, libCode: string) => {
-    if (libName === 'tcs34725.py') {
-      try {
-        setTerminalOutput(prev => prev + `[시스템] 기존의 중복되거나 손상된 라이브러리 정리 중...\n`);
-        await enterRawREPL(port);
-        await writeToSerialPort("import os\ntry: os.remove('lib/tcs34725.py')\nexcept: pass\ntry: os.remove('/lib/tcs34725.py')\nexcept: pass\n");
-        await new Promise(resolve => setTimeout(resolve, 150));
-        await writeToSerialPort(new Uint8Array([4])); // execute
-        await new Promise(resolve => setTimeout(resolve, 250));
-        await writeToSerialPort(new Uint8Array([2])); // exit Raw REPL
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (e) {
-        console.error("Cleanup error:", e);
-      }
+    // Standard MicroPython library path must be inside '/lib' folder
+    const targetPath = `lib/${libName}`;
+
+    // Clean up any legacy, duplicate, or broken versions from root/lib folders
+    try {
+      setTerminalOutput(prev => prev + `[시스템] 기존의 중복되거나 손상된 라이브러리 정리 중...\n`);
+      await enterRawREPL(port);
+      
+      // Clean up commands for both ssd1306 and tcs34725
+      const cleanCmd = `import os\n` + 
+        `for p in ['${libName}', 'lib/${libName}', '/lib/${libName}']:\n` +
+        `  try: os.remove(p)\n` +
+        `  except: pass\n`;
+        
+      await writeToSerialPort(cleanCmd);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await writeToSerialPort(new Uint8Array([4])); // execute cleanup
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await writeToSerialPort(new Uint8Array([2])); // exit Raw REPL
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (e) {
+      console.error("Cleanup error:", e);
     }
 
     const base64 = btoa(unescape(encodeURIComponent(libCode)));
-    await uploadFileToBoard(libName, base64);
+    // Upload without immediate refresh
+    await uploadFileToBoard(targetPath, base64, false);
 
-    // After uploading, soft reboot the board to clear import cache
+    // After uploading, soft reboot the board to clear MicroPython import cache
     try {
       setTerminalOutput(prev => prev + `[시스템] 라이브러리 인식 장치 재부팅 중...\n`);
       await writeToSerialPort(new Uint8Array([3])); // Ctrl+C
       await new Promise(resolve => setTimeout(resolve, 150));
       await writeToSerialPort(new Uint8Array([4])); // Ctrl+D (Soft reboot)
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 500)); // wait for reboot stabilization
       setTerminalOutput(prev => prev + `[시스템] 라이브러리 설치 및 재부팅 완료!\n`);
     } catch (e) {
       console.error("Soft reboot error:", e);
     }
+
+    // Refresh files list synchronously after all tasks are completed
+    await refreshBoardFiles();
   };
 
   // MicroPython File Explorer - Delete File
@@ -801,18 +1027,15 @@ export default function App() {
       await writeToSerialPort(cmd);
       await new Promise(resolve => setTimeout(resolve, 250));
       await writeToSerialPort(new Uint8Array([4])); // execute delete
-      await new Promise(resolve => setTimeout(resolve, 350));
-
-      // Query board files list directly while in Raw REPL recursively
-      const listCmd = "import os\ndef _list_all(d=''):\n  r = []\n  try:\n    for f in os.listdir(d if d else '.'):\n      p = d + '/' + f if d else f\n      try:\n        os.listdir(p)\n        r.extend(_list_all(p))\n      except:\n        r.append(p)\n  except: pass\n  return r\nprint('FILES:', _list_all())\n";
-      await writeToSerialPort(listCmd);
-      await new Promise(resolve => setTimeout(resolve, 250));
-      await writeToSerialPort(new Uint8Array([4])); // execute list
       await new Promise(resolve => setTimeout(resolve, 400));
-      
+
+      // 2. Exit Raw REPL
       await writeToSerialPort(new Uint8Array([2]));
-      await new Promise(resolve => setTimeout(resolve, 250)); // Wait for REPL to be ready
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait for REPL to be ready
       isUploadingRef.current = false;
+
+      // 3. Refresh files list synchronously
+      await refreshBoardFiles();
     } catch (err: any) {
       console.error(err);
       isUploadingRef.current = false;
@@ -998,6 +1221,21 @@ export default function App() {
           }
         }
       }
+
+      if (auth.currentUser) {
+        const stripFences = (text: string) => {
+          const fencePos = text.indexOf('```');
+          if (fencePos > 0) text = text.slice(fencePos);
+          text = text.replace(/^```[\w]*\r?\n?/, '');
+          text = text.replace(/```\s*$/, '');
+          return text.trim();
+        };
+
+        const parts = generatedCodeBuffer.split('__EXPLANATION__');
+        const finalCode = stripFences(parts[0]);
+        const finalExplanation = parts.length > 1 ? parts[1].replace(/^```[\w]*\r?\n?/, '').replace(/```\s*$/, '').trim() : '';
+        saveHistory('generate', finalCode, finalExplanation, prompt);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || '코드 생성 중 오류가 발생했습니다.');
@@ -1124,7 +1362,7 @@ export default function App() {
         <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-6 py-3 text-base sm:text-lg font-black rounded-lg transition-all ${
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
               activeTab === 'dashboard'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1134,45 +1372,96 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('tools')}
-            className={`px-6 py-3 text-base sm:text-lg font-black rounded-lg transition-all ${
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
               activeTab === 'tools'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            ⚙️ 보드 설정 및 도구 (Tools)
+            ⚙️ 보드 도구 (Tools)
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
+              activeTab === 'history'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            📜 히스토리
           </button>
         </div>
 
-        {/* Board Serial Port Connection Panel */}
-        <div className="flex items-center gap-3 bg-white border border-slate-200 p-1.5 px-3.5 rounded-2xl shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-500 connected-glow' : 'bg-rose-400'}`} />
-            <span className="text-xs font-bold text-slate-600">
-              {isConnected ? '보드 연결됨' : '보드 연결 안 됨'}
-            </span>
-          </div>
-
-          <div className="h-4 w-px bg-slate-200" />
-
-          {isConnected ? (
-            <button
-              onClick={disconnectSerial}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-all active:scale-95"
-            >
-              <CircuitBoard className="w-3.5 h-3.5 text-slate-500" />
-              연결 해제
-            </button>
+        {/* Board Serial Port Connection Panel & Google Auth */}
+        <div className="flex items-center gap-3">
+          {/* Firebase Authentication UI */}
+          {user ? (
+            <div className="flex items-center gap-2 bg-white border border-slate-200 p-1.5 px-3 rounded-2xl shadow-sm">
+              {user.photoURL ? (
+                <img 
+                  src={user.photoURL} 
+                  alt={user.displayName || 'User'} 
+                  className="w-5.5 h-5.5 rounded-full border border-slate-200"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-5.5 h-5.5 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200">
+                  <UserIcon className="w-3 h-3 text-indigo-600" />
+                </div>
+              )}
+              <span className="text-xs font-bold text-slate-700 hidden lg:inline max-w-[100px] truncate">
+                {user.displayName || '사용자'}
+              </span>
+              <div className="h-4 w-px bg-slate-200" />
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-1 text-slate-500 hover:text-rose-600 text-xs font-black transition-all active:scale-95 cursor-pointer"
+                title="로그아웃"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">로그아웃</span>
+              </button>
+            </div>
           ) : (
             <button
-              onClick={connectSerial}
-              disabled={activeTab === 'tools' && isFlashing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-sm active:scale-95 disabled:opacity-40"
+              onClick={signInWithGoogle}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-black text-slate-700 shadow-sm transition-all active:scale-95 hover:border-slate-300 cursor-pointer"
             >
-              <CircuitBoard className="w-3.5 h-3.5" />
-              ESP32 보드 연결
+              <LogIn className="w-3.5 h-3.5 text-slate-500" />
+              Google 로그인
             </button>
           )}
+
+          {/* Board Serial Connection Panel */}
+          <div className="flex items-center gap-3 bg-white border border-slate-200 p-1.5 px-3.5 rounded-2xl shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-500 connected-glow' : 'bg-rose-400'}`} />
+              <span className="text-xs font-bold text-slate-600 hidden sm:inline">
+                {isConnected ? '연결됨' : '미연결'}
+              </span>
+            </div>
+
+            <div className="h-4 w-px bg-slate-200" />
+
+            {isConnected ? (
+              <button
+                onClick={disconnectSerial}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-all active:scale-95 cursor-pointer"
+              >
+                <CircuitBoard className="w-3.5 h-3.5 text-slate-500" />
+                연결 해제
+              </button>
+            ) : (
+              <button
+                onClick={connectSerial}
+                disabled={activeTab === 'tools' && isFlashing}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-sm active:scale-95 disabled:opacity-40 cursor-pointer"
+              >
+                <CircuitBoard className="w-3.5 h-3.5" />
+                ESP32 연결
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -1402,7 +1691,7 @@ export default function App() {
                 
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={runCode}
+                    onClick={() => runCode()}
                     disabled={!isConnected}
                     className="flex items-center justify-center gap-2 py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95 disabled:pointer-events-none"
                   >
@@ -1471,7 +1760,7 @@ export default function App() {
               </div>
             </section>
           </div>
-        ) : (
+        ) : activeTab === 'tools' ? (
           /* Tools & Setup Layout */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
@@ -1742,6 +2031,208 @@ export default function App() {
               </div>
 
             </section>
+          </div>
+        ) : (
+          /* History Layout */
+          <div className="max-w-4xl mx-auto flex flex-col gap-6">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="flex items-center gap-2.5 text-slate-800">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <History className="w-5.5 h-5.5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight">작업 히스토리</h2>
+                  <p className="text-xs text-slate-500">생성한 코드와 실행 로그를 확인하고 재실행합니다.</p>
+                </div>
+              </div>
+
+              {historyList.length > 0 && (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={clearAllHistory}
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    전체 기록 삭제
+                  </button>
+                  <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                    총 {historyList.length}개의 기록
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {isLoadingHistory ? (
+              /* Loading State */
+              <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
+                <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+                <span className="text-xs font-bold">작업 기록을 불러오는 중...</span>
+              </div>
+            ) : historyList.length === 0 ? (
+              /* Empty State */
+              !user ? (
+                /* Not Logged In & No History State */
+                <div className="bg-white border border-slate-200 rounded-2xl p-8 py-16 text-center shadow-sm flex flex-col items-center justify-center gap-4 max-w-md mx-auto my-8">
+                  <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full">
+                    <History className="w-10 h-10" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <h3 className="text-lg font-bold text-slate-800">로그인이 필요합니다</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed px-4">
+                      Google 계정으로 로그인하시면 VibeESP32에서 작업한 소스코드와 AI 프롬프트 생성 이력을 안전하게 클라우드에 보관하고 불러올 수 있습니다.
+                    </p>
+                  </div>
+                  <button
+                    onClick={signInWithGoogle}
+                    className="mt-2 flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-bold text-white transition-all shadow-md hover:shadow-lg active:scale-95 cursor-pointer"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    Google 계정으로 로그인
+                  </button>
+                </div>
+              ) : (
+                /* Logged In & No History State */
+                <div className="bg-white border border-slate-200 border-dashed rounded-2xl p-12 py-16 text-center flex flex-col items-center justify-center gap-3">
+                  <Clock className="w-10 h-10 text-slate-300" />
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-base font-bold text-slate-700">저장된 기록이 없습니다</h3>
+                    <p className="text-xs text-slate-400 max-w-sm">
+                      대시보드 탭에서 인공지능으로 새로운 코드를 생성하거나, 작성된 코드를 ESP32 보드에 실행하면 기록이 이곳에 자동으로 기록됩니다!
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('dashboard')}
+                    className="mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-500 hover:underline cursor-pointer"
+                  >
+                    대시보드로 가기 &rarr;
+                  </button>
+                </div>
+              )
+            ) : (
+              /* History List State */
+              <div className="flex flex-col gap-4">
+                {/* Local storage history info banner for guest users */}
+                {!user && (
+                  <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-indigo-900 shadow-sm mb-1 text-left">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white rounded-xl text-indigo-600 shadow-sm flex-shrink-0">
+                        <Info className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold">임시 로컬 히스토리 모드</h4>
+                        <p className="text-xs text-indigo-700/80 mt-0.5">현재 브라우저에 임시 저장 중입니다. 로그인하시면 클라우드에 평생 보관하실 수 있습니다.</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={signInWithGoogle}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      구글 로그인
+                    </button>
+                  </div>
+                )}
+                {historyList.map((item) => (
+                  <div 
+                    key={item.id}
+                    className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-3.5 relative overflow-hidden border-l-4 ${
+                      item.type === 'generate' ? 'border-l-violet-500' : 'border-l-emerald-500'
+                    }`}
+                  >
+                    {/* Top Row: Type badge, Date, and Delete Button */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {item.type === 'generate' ? (
+                          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-violet-50 text-violet-700 border border-violet-100">
+                            <Zap className="w-3 h-3" />
+                            AI 코드 생성
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            <Play className="w-3 h-3" />
+                            보드 직접 실행
+                          </span>
+                        )}
+                        
+                        <span className="flex items-center gap-1 text-[11px] text-slate-400 font-medium">
+                          <Clock className="w-3 h-3" />
+                          {(() => {
+                            try {
+                              return new Date(item.createdAt).toLocaleString('ko-KR', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              });
+                            } catch(e) {
+                              return item.createdAt;
+                            }
+                          })()}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => deleteHistoryItem(item.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all rounded-lg active:scale-90 cursor-pointer"
+                        title="기록 삭제"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Prompt/Content Row */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">명령 및 내용</span>
+                      <p className="text-sm font-semibold text-slate-800 leading-relaxed whitespace-pre-line">
+                        {item.prompt}
+                      </p>
+                    </div>
+
+                    {/* Code Preview (Max-height scrollable window) */}
+                    <div className="relative">
+                      <div className="bg-slate-900 text-slate-200 font-mono text-xs rounded-xl p-3 max-h-[120px] overflow-y-auto leading-relaxed border border-slate-800 whitespace-pre scrollbar-thin">
+                        {item.code}
+                      </div>
+                      <div className="absolute top-2 right-2 flex gap-1">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.code);
+                            alert('코드가 클립보드에 복사되었습니다.');
+                          }}
+                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md text-[10px] font-bold transition-all active:scale-95 flex items-center gap-1 shadow-sm border border-slate-700 cursor-pointer"
+                          title="코드 복사"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons Row */}
+                    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        onClick={() => handleLoadHistory(item)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-bold text-slate-600 transition-all active:scale-95 cursor-pointer"
+                      >
+                        에디터에 로드
+                      </button>
+                      <button
+                        onClick={() => handleLoadAndRunHistory(item)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+                          item.type === 'generate' 
+                            ? 'bg-violet-600 hover:bg-violet-500 shadow-sm shadow-violet-500/10' 
+                            : 'bg-emerald-600 hover:bg-emerald-500 shadow-sm shadow-emerald-500/10'
+                        }`}
+                      >
+                        <Play className="w-3 h-3" />
+                        이 코드로 바로 실행
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -555,9 +555,50 @@ else:
     label: '🔮 TCS34725 컬러센서 Mood Light',
     code: `# VibeESP32 - TCS34725 컬러센서를 이용한 NeoPixel 무드등 (SDA: 17, SCL: 16)
 from machine import Pin, SoftI2C
-from tcs34725 import TCS34725
 import neopixel
 import time
+import ustruct
+
+# [TCS34725 컬러 센서 내부 드라이버 클래스 정의]
+class TCS34725:
+    def __init__(self, i2c, address=0x29):
+        self.i2c = i2c
+        self.address = address
+        # 센서 ID 확인 (ID 레지스터: 0x12 | 0x80 = 0x92)
+        sensor_id = self.i2c.readfrom_mem(self.address, 0x92, 1)[0]
+        if sensor_id not in (0x44, 0x4D, 0x10):
+            raise RuntimeError("Could not find TCS34725 sensor.")
+        # 센서 전원 켜기 (Power ON) 및 RGBC 활성화
+        self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
+        self.integration_time(24)
+        self.gain(4)
+
+    def integration_time(self, value=None):
+        if value is None:
+            return getattr(self, '_integration_time', 24.0)
+        reg = 256 - int(value / 2.4)
+        reg = min(max(reg, 0), 255)
+        self.i2c.writeto_mem(self.address, 0x81, bytes([reg]))
+        self._integration_time = value
+
+    def gain(self, value=None):
+        if value is None:
+            return getattr(self, '_gain', 4)
+        gains = {1: 0x00, 4: 0x01, 16: 0x02, 60: 0x03}
+        if value not in gains:
+            raise ValueError("Gain must be 1, 4, 16, or 60")
+        reg = gains[value]
+        self.i2c.writeto_mem(self.address, 0x8F, bytes([reg]))
+        self._gain = value
+
+    def read(self):
+        # 8바이트 (Clear, Red, Green, Blue) 데이터 한번에 읽어오기
+        data = self.i2c.readfrom_mem(self.address, 0x94, 8)
+        c = ustruct.unpack('<H', data[0:2])[0]
+        r = ustruct.unpack('<H', data[2:4])[0]
+        g = ustruct.unpack('<H', data[4:6])[0]
+        b = ustruct.unpack('<H', data[6:8])[0]
+        return r, g, b, c
 
 # TCS34725 컬러센서 I2C 설정 (SDA: GPIO 17, SCL: GPIO 16)
 i2c = SoftI2C(sda=Pin(17), scl=Pin(16))
@@ -575,7 +616,7 @@ print("[시스템] TCS34725 무드등 구동 시작 (SDA: 17, SCL: 16)")
 while True:
     try:
         # 센서로부터 R, G, B, Clear(C) 값 읽기
-        r, g, b, c = sensor.read(raw=True)
+        r, g, b, c = sensor.read()
         
         if c > 0:
             # 8비트 RGB 값으로 변환 (밝기 비례 스케일링)
@@ -604,8 +645,8 @@ while True:
 `,
     explanation: `이 코드는 SDA=Pin(17), SCL=Pin(16) 핀으로 연결된 TCS34725 RGB 컬러센서로부터 실시간 컬러 센싱 값을 받아온 뒤, 주변 밝기(Clear 채널)에 비례하게 정규화된 8비트 R, G, B 값으로 스케일링하여 GPIO 14번에 연결된 12구 NeoPixel LED 바에 동일한 컬러로 비춰주는 스마트 컬러 무드등(mood light) 예제입니다.
 
-1. **외부 라이브러리 활용**:
-   - 보드에 사전에 업로드해 둔 \`tcs34725.py\` 모듈을 \`from tcs34725 import TCS34725\` 문을 통해 깔끔하게 불러와 사용합니다. 내부적인 레지스터 설정이나 바이트 결합 과정을 생략하여 메인 루프 코드가 매우 간결해졌습니다.
+1. **자체 드라이버 내장 (Standalone)**:
+   - 보드에 번거롭게 별도의 \`tcs34725.py\` 라이브러리 파일을 올릴 필요 없이, 코드 내부에 드라이버 클래스를 직접 포함하고 있어 단독으로 즉시 오류 없이 정상 작동합니다.
 
 2. **컬러 스케일 가공 및 노이즈 보정**:
    - 광량 및 밝기 데이터(\`c\`) 비례 나눗셈 방식을 거친 후 1.5배의 강도를 주어 눈에 쉽게 띄도록 하고, 센서 데이터가 없을 때(\`c <= 0\`) 발생할 수 있는 Zero-Division 에러 및 0~255 제한 오버플로우를 완벽 차단 처리했습니다.

@@ -234,6 +234,219 @@ __EXPLANATION__
    - \`conn.recv(1024)\`: 웹 브라우저 접속 요청 헤더를 확인합니다.
    - \`conn.send(response)\`: 브라우저에게 "Hello from VibeESP32!"와 한글 소개가 적용된 깔끔한 카드 스타일 HTML 레이아웃 페이지를 반환합니다.
    - 전송을 완료한 후 \`conn.close()\`로 개별 세션 연결 소켓을 종료하여 리소스를 해제합니다.
+const WEATHER_CODE = `# VibeESP32 - 서울 날씨 정보 가져오기 & OLED & NeoPixel 제어
+import machine
+import network
+import time
+import urequests
+import json
+from machine import Pin, SoftI2C
+import ssd1306
+import neopixel
+
+# WiFi 설정 및 OpenWeatherMap API 키 설정
+SSID = "Your_WiFi_SSID"
+PASSWORD = "Your_WiFi_Password"
+API_KEY = "Your_OpenWeatherMap_API_Key"  # OpenWeatherMap에서 발급받은 API 키 입력
+CITY = "Seoul"
+URL = "http://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric".format(CITY, API_KEY)
+
+# 하드웨어 설정 (I2C OLED & NeoPixel)
+i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+# NeoPixel 설정 (GPIO 14번, 12개 LED)
+np_pin = Pin(14, Pin.OUT)
+np = neopixel.NeoPixel(np_pin, 12)
+
+def set_np_color(r, g, b):
+    for i in range(12):
+        np[i] = (r, g, b)
+    np.write()
+
+# WiFi 연결 함수
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+print("[시스템] WiFi 연결 시도 중...")
+wlan.connect(SSID, PASSWORD)
+
+# 연결 대기
+for _ in range(10):
+    if wlan.isconnected():
+        break
+    time.sleep(1)
+
+if not wlan.isconnected():
+    print("[에러] WiFi 연결 실패.")
+    oled.fill(0)
+    oled.text("WiFi Connect Fail", 0, 20)
+    oled.show()
+    set_np_color(255, 0, 0) # 빨간색으로 에러 표시
+else:
+    print("[시스템] WiFi 연결 성공! IP:", wlan.ifconfig()[0])
+    oled.fill(0)
+    oled.text("WiFi Connected!", 0, 20)
+    oled.show()
+    set_np_color(0, 255, 0) # 초록색으로 성공 표시
+    time.sleep(1)
+
+    while True:
+        try:
+            print("[시스템] 서울 날씨 정보 요청 중...")
+            response = urequests.get(URL)
+            if response.status_code == 200:
+                data = response.json()
+                temp = data['main']['temp']
+                weather_main = data['weather'][0]['main']
+                
+                print("도시: Seoul")
+                print("날씨: {}, 온도: {} C".format(weather_main, temp))
+                
+                # OLED 출력
+                oled.fill(0)
+                oled.text("Seoul Weather", 10, 5, 1)
+                oled.text("----------------", 0, 18, 1)
+                oled.text("Temp: {} C".format(temp), 10, 30, 1)
+                oled.text("State: {}".format(weather_main), 10, 45, 1)
+                oled.show()
+                
+                # 날씨 상태에 따른 네오픽셀 색상 변경
+                # 1. 맑음 (Clear) -> 주황/빨강 (따뜻함/태양)
+                # 2. 비/눈 (Rain/Drizzle/Snow) -> 파랑 (물/눈)
+                # 3. 흐림/안개 등 (Clouds/Mist/Haze) -> 노랑/보라
+                if "clear" in weather_main.lower():
+                    set_np_color(255, 50, 0) # 주황빛 빨간색
+                    print("[날씨: 맑음] NeoPixel 색상: 주황색")
+                elif any(x in weather_main.lower() for x in ["rain", "drizzle", "snow", "thunderstorm"]):
+                    set_np_color(0, 0, 255) # 파란색
+                    print("[날씨: 비/눈] NeoPixel 색상: 파란색")
+                else:
+                    set_np_color(80, 80, 80) # 백색/흐린 흰빛
+                    print("[날씨: 흐림/기타] NeoPixel 색상: 흐린 흰색")
+            else:
+                print("[에러] 날씨 데이터를 가져올 수 없습니다. Status Code:", response.status_code)
+                oled.fill(0)
+                oled.text("HTTP Error: {}".format(response.status_code), 0, 20)
+                oled.show()
+            response.close()
+        except Exception as e:
+            print("[에러] 날씨 조회 중 오류 발생:", e)
+            
+        time.sleep(300) # 5분 간격 갱신
+__EXPLANATION__
+이 코드는 WiFi를 연결하고 OpenWeatherMap API를 호출해 서울의 현재 날씨와 기온을 수집한 뒤, 그 결과를 터미널과 I2C 128x64 OLED 디스플레이에 노출하고 동시에 날씨 상태(맑음, 비/눈, 흐림)에 따라 GPIO 14번에 연결된 12구 NeoPixel LED의 색상을 다르게 켜 주는 종합 스마트 홈 연동 IoT 예제입니다.
+
+1. **인터넷 연결 및 HTTP 통신**:
+   - \`network.WLAN\`를 사용해 공유기에 접속한 후 마이크로파이썬 전용 \`urequests.get()\` 라이브러리로 OpenWeatherMap API 서버에 HTTP GET 요청을 보냅니다.
+   - 받아온 JSON 데이터(\`response.json()\` )로부터 온도(\`temp\` ) 및 주요 날씨 지표(\`weather[0]['main']\` )를 파싱합니다.
+
+2. **OLED 모니터링 출력**:
+   - I2C SSD1306 OLED 디스플레이를 활용해 도시명, 온도, 날씨 상태를 실시간 출력합니다.
+
+3. **날씨별 네오픽셀 무드 색상 변환**:
+   - 날씨 맑음일 때는 주황빛 빨강, 눈/비가 올 때는 차가운 파란색, 흐리거나 기타 상태일 때는 연한 백색으로 변환하여 실시간 날씨를 시각화합니다.
+`;
+
+const TCS34725_CODE = `# VibeESP32 - TCS34725 컬러센서를 이용한 NeoPixel 무드등 (SDA: 17, SCL: 16)
+from machine import Pin, SoftI2C
+import neopixel
+import time
+import ustruct
+
+# [TCS34725 컬러 센서 내부 드라이버 클래스 정의]
+class TCS34725:
+    def __init__(self, i2c, address=0x29):
+        self.i2c = i2c
+        self.address = address
+        # 센서 ID 확인 (ID 레지스터: 0x12 | 0x80 = 0x92)
+        sensor_id = self.i2c.readfrom_mem(self.address, 0x92, 1)[0]
+        if sensor_id not in (0x44, 0x4D, 0x10):
+            raise RuntimeError("Could not find TCS34725 sensor.")
+        # 센서 전원 켜기 (Power ON) 및 RGBC 활성화
+        self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
+        self.integration_time(24)
+        self.gain(4)
+
+    def integration_time(self, value=None):
+        if value is None:
+            return getattr(self, '_integration_time', 24.0)
+        reg = 256 - int(value / 2.4)
+        reg = min(max(reg, 0), 255)
+        self.i2c.writeto_mem(self.address, 0x81, bytes([reg]))
+        self._integration_time = value
+
+    def gain(self, value=None):
+        if value is None:
+            return getattr(self, '_gain', 4)
+        gains = {1: 0x00, 4: 0x01, 16: 0x02, 60: 0x03}
+        if value not in gains:
+            raise ValueError("Gain must be 1, 4, 16, or 60")
+        reg = gains[value]
+        self.i2c.writeto_mem(self.address, 0x8F, bytes([reg]))
+        self._gain = value
+
+    def read(self):
+        # 8바이트 (Clear, Red, Green, Blue) 데이터 한번에 읽어오기
+        data = self.i2c.readfrom_mem(self.address, 0x94, 8)
+        c = ustruct.unpack('<H', data[0:2])[0]
+        r = ustruct.unpack('<H', data[2:4])[0]
+        g = ustruct.unpack('<H', data[4:6])[0]
+        b = ustruct.unpack('<H', data[6:8])[0]
+        return r, g, b, c
+
+# TCS34725 컬러센서 I2C 설정 (SDA: GPIO 17, SCL: GPIO 16)
+i2c = SoftI2C(sda=Pin(17), scl=Pin(16))
+sensor = TCS34725(i2c)
+
+# 조도 감도 및 정확도 향상을 위한 설정 반영
+sensor.gain(1)
+sensor.integration_time(240)
+
+# NeoPixel 설정 (GPIO 14번, 12개 LED)
+np = neopixel.NeoPixel(Pin(14, Pin.OUT), 12)
+
+print("[시스템] TCS34725 무드등 구동 시작 (SDA: 17, SCL: 16)")
+
+while True:
+    try:
+        # 센서로부터 R, G, B, Clear(C) 값 읽기
+        r, g, b, c = sensor.read()
+        
+        if c > 0:
+            # 8비트 RGB 값으로 변환 (밝기 비례 스케일링)
+            r_scale = int((r / c) * 255 * 1.5) # 눈에 잘 띄도록 가중치 부여
+            g_scale = int((g / c) * 255 * 1.5)
+            b_scale = int((b / c) * 255 * 1.5)
+            
+            # 0~255 범위 제한
+            red = min(max(r_scale, 0), 255)
+            green = min(max(g_scale, 0), 255)
+            blue = min(max(b_scale, 0), 255)
+        else:
+            red = green = blue = 0
+            
+        print("측정값 - Clear: {}, R: {}, G: {}, B: {} -> 매핑 RGB: ({}, {}, {})".format(c, r, g, b, red, green, blue))
+        
+        # NeoPixel 무드등 색상 켜기 (12개 LED 전체 반영)
+        for i in range(12):
+            np[i] = (red, green, blue)
+        np.write()
+        
+    except Exception as e:
+        print("[에러] 센서 읽기 오류:", e)
+        
+    time.sleep(0.5) # 0.5초 간격으로 컬러 센싱 및 무드등 갱신
+__EXPLANATION__
+이 코드는 SDA=Pin(17), SCL=Pin(16) 핀으로 연결된 TCS34725 RGB 컬러센서로부터 실시간 컬러 센싱 값을 받아온 뒤, 주변 밝기(Clear 채널)에 비례하게 정규화된 8비트 R, G, B 값으로 스케일링하여 GPIO 14번에 연결된 12구 NeoPixel LED 바에 동일한 컬러로 비춰주는 스마트 컬러 무드등(mood light) 예제입니다.
+
+1. **자체 드라이버 내장 (Standalone)**:
+   - 보드에 번거롭게 별도의 \`tcs34725.py\` 라이브러리 파일을 올릴 필요 없이, 코드 내부에 드라이버 클래스를 직접 포함하고 있어 단독으로 즉시 오류 없이 정상 작동합니다.
+
+2. **컬러 스케일 가공 및 노이즈 보정**:
+   - 광량 및 밝기 데이터(\`c\`) 비례 나눗셈 방식을 거친 후 1.5배의 강도를 주어 눈에 쉽게 띄도록 하고, 센서 데이터가 없을 때(\`c <= 0\`) 발생할 수 있는 Zero-Division 에러 및 0~255 제한 오버플로우를 완벽 차단 처리했습니다.
+
+3. **NeoPixel 실시간 무드 갱신**:
+   - 0.5초 주기로 센서가 주변 사물의 색깔을 감지하면 LED 12구의 픽셀 색상이 동적 반응하여, 사물이나 반사판의 색을 그대로 따라 빛을 표현합니다.
 `;
 
 const TETRIS_CODE = `import machine
@@ -463,6 +676,14 @@ export default async function handler(req: Request) {
 
     const cleanPrompt = prompt.toLowerCase().replace(/\s+/g, '');
     
+    // Check specific/complex modules first to prevent general keywords (like wifi or neopixel) from intercepting them
+    if (cleanPrompt.includes('tcs34725') || cleanPrompt.includes('컬러센서')) {
+      return streamStaticCode(TCS34725_CODE);
+    }
+    if (cleanPrompt.includes('서울날씨') || cleanPrompt.includes('서울의실시간날씨') || (cleanPrompt.includes('날씨') && cleanPrompt.includes('서울'))) {
+      return streamStaticCode(WEATHER_CODE);
+    }
+
     if (cleanPrompt.includes('테트리스') || cleanPrompt.includes('tetris') || cleanPrompt.includes('게임')) {
       return streamStaticCode(TETRIS_CODE);
     }
@@ -558,7 +779,8 @@ CRITICAL MICROPYTHON-SPECIFIC RULES:
 - NEVER use "if __name__ == '__main__':" — it does not work when code is run via exec(). Write flat top-level code only
 - NEVER use f-strings (f"...") — use str.format() or string concatenation for MicroPython compatibility
 - For geometric calculations (circles, stars, angles), use the math module: import math, math.sin(), math.cos(), math.radians()
-- A proper 5-pointed star requires 10 alternating points (outer/inner radius) at 36-degree intervals using trigonometry`;
+- A proper 5-pointed star requires 10 alternating points (outer/inner radius) at 36-degree intervals using trigonometry
+- For TCS34725 color sensor requests, ALWAYS include the inline "class TCS34725:" driver directly in the generated code instead of importing from 'tcs34725.py' or 'tcs34725' to make the script self-contained and avoid library load errors.`;
 
     const fewShotExamples = [
       {
