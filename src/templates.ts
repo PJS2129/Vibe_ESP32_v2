@@ -433,5 +433,180 @@ draw_game()`,
    - 10x20 격자 보드 위에서 매 턴마다 블록의 좌표를 아래로 한 칸씩 하강시킵니다.
    - \`check_collision()\` 검사를 통해 바닥에 닿거나 타 블록과 겹칠 경우 한 단계 뒤로 돌린 뒤 보드 데이터(\`board\`)에 반영하고 라인 삭제(\`clear_lines()\`)를 거쳐 새로운 블록을 소환합니다.
    - 충돌이 천장에 도달하면 루프를 빠져나와 OLED에 'Game Over' 텍스트를 출력합니다.`
+  },
+  {
+    label: '🌤️ 서울 날씨 & OLED & NeoPixel',
+    code: `# VibeESP32 - 서울 날씨 정보 가져오기 & OLED & NeoPixel 제어
+import machine
+import network
+import time
+import urequests
+import json
+from machine import Pin, SoftI2C
+import ssd1306
+import neopixel
+
+# WiFi 설정 및 OpenWeatherMap API 키 설정
+SSID = "Your_WiFi_SSID"
+PASSWORD = "Your_WiFi_Password"
+API_KEY = "Your_OpenWeatherMap_API_Key"  # OpenWeatherMap에서 발급받은 API 키 입력
+CITY = "Seoul"
+URL = "http://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric".format(CITY, API_KEY)
+
+# 하드웨어 설정 (I2C OLED & NeoPixel)
+i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+# NeoPixel 설정 (GPIO 14번, 12개 LED)
+np_pin = Pin(14, Pin.OUT)
+np = neopixel.NeoPixel(np_pin, 12)
+
+def set_np_color(r, g, b):
+    for i in range(12):
+        np[i] = (r, g, b)
+    np.write()
+
+# WiFi 연결 함수
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+print("[시스템] WiFi 연결 시도 중...")
+wlan.connect(SSID, PASSWORD)
+
+# 연결 대기
+for _ in range(10):
+    if wlan.isconnected():
+        break
+    time.sleep(1)
+
+if not wlan.isconnected():
+    print("[에러] WiFi 연결 실패.")
+    oled.fill(0)
+    oled.text("WiFi Connect Fail", 0, 20)
+    oled.show()
+    set_np_color(255, 0, 0) # 빨간색으로 에러 표시
+else:
+    print("[시스템] WiFi 연결 성공! IP:", wlan.ifconfig()[0])
+    oled.fill(0)
+    oled.text("WiFi Connected!", 0, 20)
+    oled.show()
+    set_np_color(0, 255, 0) # 초록색으로 성공 표시
+    time.sleep(1)
+
+    while True:
+        try:
+            print("[시스템] 서울 날씨 정보 요청 중...")
+            response = urequests.get(URL)
+            if response.status_code == 200:
+                data = response.json()
+                temp = data['main']['temp']
+                weather_main = data['weather'][0]['main']
+                
+                print("도시: Seoul")
+                print("날씨: {}, 온도: {} C".format(weather_main, temp))
+                
+                # OLED 출력
+                oled.fill(0)
+                oled.text("Seoul Weather", 10, 5, 1)
+                oled.text("----------------", 0, 18, 1)
+                oled.text("Temp: {} C".format(temp), 10, 30, 1)
+                oled.text("State: {}".format(weather_main), 10, 45, 1)
+                oled.show()
+                
+                # 날씨 상태에 따른 네오픽셀 색상 변경
+                # 1. 맑음 (Clear) -> 주황/빨강 (따뜻함/태양)
+                # 2. 비/눈 (Rain/Drizzle/Snow) -> 파랑 (물/눈)
+                # 3. 흐림/안개 등 (Clouds/Mist/Haze) -> 노랑/보라
+                if "clear" in weather_main.lower():
+                    set_np_color(255, 50, 0) # 주황빛 빨간색
+                    print("[날씨: 맑음] NeoPixel 색상: 주황색")
+                elif any(x in weather_main.lower() for x in ["rain", "drizzle", "snow", "thunderstorm"]):
+                    set_np_color(0, 0, 255) # 파란색
+                    print("[날씨: 비/눈] NeoPixel 색상: 파란색")
+                else:
+                    set_np_color(80, 80, 80) # 백색/흐린 흰빛
+                    print("[날씨: 흐림/기타] NeoPixel 색상: 흐린 흰색")
+            else:
+                print("[에러] 날씨 데이터를 가져올 수 없습니다. Status Code:", response.status_code)
+                oled.fill(0)
+                oled.text("HTTP Error: {}".format(response.status_code), 0, 20)
+                oled.show()
+            response.close()
+        except Exception as e:
+            print("[에러] 날씨 조회 중 오류 발생:", e)
+            
+        time.sleep(300) # 5분 간격 갱신
+`,
+    explanation: `이 코드는 WiFi를 연결하고 OpenWeatherMap API를 호출해 서울의 현재 날씨와 기온을 수집한 뒤, 그 결과를 터미널과 I2C 128x64 OLED 디스플레이에 노출하고 동시에 날씨 상태(맑음, 비/눈, 흐림)에 따라 GPIO 14번에 연결된 12구 NeoPixel LED의 색상을 다르게 켜 주는 종합 스마트 홈 연동 IoT 예제입니다.
+
+1. **인터넷 연결 및 HTTP 통신**:
+   - \`network.WLAN\`를 사용해 공유기에 접속한 후 마이크로파이썬 전용 \`urequests.get()\` 라이브러리로 OpenWeatherMap API 서버에 HTTP GET 요청을 보냅니다.
+   - 받아온 JSON 데이터(\`response.json()\`)로부터 온도(\`temp\`) 및 주요 날씨 지표(\`weather[0]['main']\`)를 파싱합니다.
+
+2. **OLED 모니터링 출력**:
+   - \`ssd1306\` OLED 디스플레이를 활용해 도시명, 온도, 날씨 상태를 화면 상에 깔끔하게 나누어 출력합니다.
+
+3. **조건부 NeoPixel LED 조명 피드백**:
+   - 수집된 날씨 상태의 텍스트에 따라,
+     - **맑음 (Clear)** 일 때는 따뜻한 태양을 상징하는 **주황색 (Red 255, Green 50, Blue 0)**
+     - **비/눈 (Rain/Snow)** 계열일 때는 물방울을 연상시키는 **파란색 (Red 0, Green 0, Blue 255)**
+     - **흐림/기타 (Clouds/Mist)** 일 때는 차분한 **연한 백색 (Red 80, Green 80, Blue 80)**으로 NeoPixel 바의 색상을 변경합니다.`
+  },
+  {
+    label: '🔮 TCS34725 컬러센서 Mood Light',
+    code: `# VibeESP32 - TCS34725 컬러센서를 이용한 NeoPixel 무드등 (SDA: 17, SCL: 16)
+from machine import Pin, SoftI2C
+from tcs34725 import TCS34725
+import neopixel
+import time
+
+# TCS34725 컬러센서 I2C 설정 (SDA: GPIO 17, SCL: GPIO 16)
+i2c = SoftI2C(sda=Pin(17), scl=Pin(16))
+sensor = TCS34725(i2c)
+
+# NeoPixel 설정 (GPIO 14번, 12개 LED)
+np = neopixel.NeoPixel(Pin(14, Pin.OUT), 12)
+
+print("[시스템] TCS34725 무드등 구동 시작 (SDA: 17, SCL: 16)")
+
+while True:
+    try:
+        # 센서로부터 R, G, B, Clear(C) 값 읽기
+        r, g, b, c = sensor.read(raw=True)
+        
+        if c > 0:
+            # 8비트 RGB 값으로 변환 (밝기 비례 스케일링)
+            r_scale = int((r / c) * 255 * 1.5) # 눈에 잘 띄도록 가중치 부여
+            g_scale = int((g / c) * 255 * 1.5)
+            b_scale = int((b / c) * 255 * 1.5)
+            
+            # 0~255 범위 제한
+            red = min(max(r_scale, 0), 255)
+            green = min(max(g_scale, 0), 255)
+            blue = min(max(b_scale, 0), 255)
+        else:
+            red = green = blue = 0
+            
+        print("측정값 - Clear: {}, R: {}, G: {}, B: {} -> 매핑 RGB: ({}, {}, {})".format(c, r, g, b, red, green, blue))
+        
+        # NeoPixel 무드등 색상 켜기 (12개 LED 전체 반영)
+        for i in range(12):
+            np[i] = (red, green, blue)
+        np.write()
+        
+    except Exception as e:
+        print("[에러] 센서 읽기 오류:", e)
+        
+    time.sleep(0.5) # 0.5초 간격으로 컬러 센싱 및 무드등 갱신
+`,
+    explanation: `이 코드는 SDA=Pin(17), SCL=Pin(16) 핀으로 연결된 TCS34725 RGB 컬러센서로부터 실시간 컬러 센싱 값을 받아온 뒤, 주변 밝기(Clear 채널)에 비례하게 정규화된 8비트 R, G, B 값으로 스케일링하여 GPIO 14번에 연결된 12구 NeoPixel LED 바에 동일한 컬러로 비춰주는 스마트 컬러 무드등(mood light) 예제입니다.
+
+1. **외부 라이브러리 활용**:
+   - 보드에 사전에 업로드해 둔 \`tcs34725.py\` 모듈을 \`from tcs34725 import TCS34725\` 문을 통해 깔끔하게 불러와 사용합니다. 내부적인 레지스터 설정이나 바이트 결합 과정을 생략하여 메인 루프 코드가 매우 간결해졌습니다.
+
+2. **컬러 스케일 가공 및 노이즈 보정**:
+   - 광량 및 밝기 데이터(\`c\`) 비례 나눗셈 방식을 거친 후 1.5배의 강도를 주어 눈에 쉽게 띄도록 하고, 센서 데이터가 없을 때(\`c <= 0\`) 발생할 수 있는 Zero-Division 에러 및 0~255 제한 오버플로우를 완벽 차단 처리했습니다.
+
+3. **NeoPixel 실시간 무드 갱신**:
+   - 0.5초 주기로 센서가 주변 사물의 색깔을 감지하면 LED 12구의 픽셀 색상이 동적 반응하여, 사물이나 반사판의 색을 그대로 따라 빛을 표현합니다.`
   }
 ];

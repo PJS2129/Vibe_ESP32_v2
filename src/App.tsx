@@ -135,6 +135,35 @@ class SSD1306_I2C(SSD1306):
         self.i2c.writevto(self.addr, self.write_list)
 `;
 
+const TCS34725_CODE = `# MicroPython TCS34725 Color Sensor Driver
+import time
+import ustruct
+
+class TCS34725:
+    def __init__(self, i2c, address=0x29):
+        self.i2c = i2c
+        self.address = address
+        # Check sensor ID (ID register: 0x12 | 0x80 = 0x92)
+        sensor_id = self.i2c.readfrom_mem(self.address, 0x92, 1)[0]
+        if sensor_id not in (0x44, 0x4D, 0x10):
+            raise RuntimeError("Could not find TCS34725 sensor. ID: " + hex(sensor_id))
+        # Power ON (0x01) and RGBC enable (0x02) = 0x03
+        self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
+        # Set integration time (24ms)
+        self.i2c.writeto_mem(self.address, 0x81, b'\\xF6')
+        # Set gain (4x)
+        self.i2c.writeto_mem(self.address, 0x8F, b'\\x01')
+
+    def read(self, raw=True):
+        # Read 8 bytes: Clear, Red, Green, Blue (0x14 | 0x80 = 0x94)
+        data = self.i2c.readfrom_mem(self.address, 0x94, 8)
+        c = ustruct.unpack('<H', data[0:2])[0]
+        r = ustruct.unpack('<H', data[2:4])[0]
+        g = ustruct.unpack('<H', data[4:6])[0]
+        b = ustruct.unpack('<H', data[6:8])[0]
+        return r, g, b, c
+`;
+
 export default function App() {
   // Main Tab State
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tools'>('dashboard');
@@ -185,6 +214,7 @@ export default function App() {
   const isUploadingRef = useRef<boolean>(false);
   const previewCodeRef = useRef<HTMLDivElement>(null);
   const explanationContainerRef = useRef<HTMLDivElement>(null);
+  const terminalPreRef = useRef<HTMLPreElement>(null);
 
   // Sync terminal scroll
   useEffect(() => {
@@ -227,6 +257,22 @@ export default function App() {
     }
   };
 
+  // Intercept Ctrl+A or Cmd+A key combinations inside terminal to select only terminal output
+  const handleTerminalKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      if (terminalPreRef.current) {
+        const range = document.createRange();
+        range.selectNodeContents(terminalPreRef.current);
+        const selection = window.getSelection();
+        if (selection) {
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+    }
+  };
+
   // Predefined suggestion tags
   const suggestions = [
     { label: '💡 내장 LED 깜빡이기', text: 'ESP32 내장 LED(GPIO 2번)를 0.5초 간격으로 깜빡이는 무한 루프 코드를 작성해줘.' },
@@ -235,6 +281,8 @@ export default function App() {
     { label: '🌈 NeoPixel 무지개', text: 'GPIO 14번에 연결된 12구 NeoPixel LED 바에 무지개 회전 효과(Rainbow Cycle)를 내는 코드를 작성해줘.' },
     { label: '🌐 웹 서버 구동', text: 'ESP32가 WiFi에 접속한 후 간단한 웹 서버를 열어서, 접속한 클라이언트에게 "Hello from VibeESP32!" 메시지를 담은 HTML 페이지를 반환하는 코드를 작성해줘.' },
     { label: '🎮 테트리스 게임', text: 'SoftI2C와 ssd1306을 사용해 128x64 OLED 디스플레이에서 구동되는 테트리스 게임 코드를 작성해줘.' },
+    { label: '🌤️ 서울 날씨 & OLED & NeoPixel', text: '오픈웨더맵 API를 활용하여 서울의 실시간 날씨를 가져와 시리얼 모니터와 OLED 디스플레이에 출력하고, 날씨 정보에 따라 NeoPixel 색상을 파란색(비/눈), 주황색(맑음), 흰색(흐림) 등으로 제어하는 코드를 작성해줘.' },
+    { label: '🔮 TCS34725 컬러센서 Mood Light', text: 'GPIO 17(SDA)과 GPIO 16(SCL)에 연결된 TCS34725 컬러센서에서 컬러 값을 읽어와, 감지한 색상과 동일한 색으로 GPIO 14에 연결된 NeoPixel LED를 켜는 스마트 무드등 코드를 작성해줘.' }
   ];
 
   // Web Serial API - Connect to ESP32
@@ -429,7 +477,7 @@ export default function App() {
       await writeToSerialPort(new Uint8Array([3]));
       await new Promise(resolve => setTimeout(resolve, 150));
       
-      await writeToSerialPort("exec(open('_run.py').read(), globals())\r\n");
+      await writeToSerialPort("exec(open('_run.py', 'rb').read().decode('utf-8'), globals())\r\n");
     } catch (err: any) {
       console.error(err);
       setTerminalOutput(prev => prev + `[시스템] 코드 전송 및 실행 실패: ${err.message}\n`);
@@ -685,8 +733,35 @@ export default function App() {
 
   // MicroPython File Explorer - Quick Install Preset Libraries
   const installPresetLibrary = async (libName: string, libCode: string) => {
+    if (libName === 'tcs34725.py') {
+      try {
+        setTerminalOutput(prev => prev + `[시스템] 기존의 중복되거나 손상된 라이브러리 정리 중...\n`);
+        await enterRawREPL(port);
+        await writeToSerialPort("import os\ntry: os.remove('lib/tcs34725.py')\nexcept: pass\ntry: os.remove('/lib/tcs34725.py')\nexcept: pass\n");
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await writeToSerialPort(new Uint8Array([4])); // execute
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await writeToSerialPort(new Uint8Array([2])); // exit Raw REPL
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (e) {
+        console.error("Cleanup error:", e);
+      }
+    }
+
     const base64 = btoa(unescape(encodeURIComponent(libCode)));
     await uploadFileToBoard(libName, base64);
+
+    // After uploading, soft reboot the board to clear import cache
+    try {
+      setTerminalOutput(prev => prev + `[시스템] 라이브러리 인식 장치 재부팅 중...\n`);
+      await writeToSerialPort(new Uint8Array([3])); // Ctrl+C
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await writeToSerialPort(new Uint8Array([4])); // Ctrl+D (Soft reboot)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setTerminalOutput(prev => prev + `[시스템] 라이브러리 설치 및 재부팅 완료!\n`);
+    } catch (e) {
+      console.error("Soft reboot error:", e);
+    }
   };
 
   // MicroPython File Explorer - Delete File
@@ -1033,7 +1108,7 @@ export default function App() {
         <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`px-6 py-3 text-base sm:text-lg font-black rounded-lg transition-all ${
               activeTab === 'dashboard'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1043,7 +1118,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('tools')}
-            className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`px-6 py-3 text-base sm:text-lg font-black rounded-lg transition-all ${
               activeTab === 'tools'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1097,8 +1172,8 @@ export default function App() {
               {/* AI Prompter Card - Pastel Lavender */}
               <div className="bg-violet-50/80 border border-violet-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-violet-700">
-                  <Zap className="w-4 h-4" />
-                  <h2 className="text-sm font-bold tracking-wide">
+                  <Zap className="w-5.5 h-5.5" />
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
                     자연어 명령 입력
                   </h2>
                 </div>
@@ -1171,8 +1246,8 @@ export default function App() {
                 {/* Editor Toolbar */}
                 <div className="px-5 py-3 border-b border-emerald-100 flex justify-between items-center flex-shrink-0">
                   <div className="flex items-center gap-2 text-emerald-700">
-                    <CodeIcon className="w-4 h-4" />
-                    <h2 className="text-sm font-bold tracking-wide">
+                    <CodeIcon className="w-5.5 h-5.5" />
+                    <h2 className="text-lg sm:text-xl font-black tracking-wide">
                       MicroPython 소스코드
                     </h2>
                   </div>
@@ -1303,8 +1378,8 @@ export default function App() {
               {/* Action Control Panel - Pastel Coral */}
               <div className="bg-rose-50/80 border border-rose-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-2 text-rose-700">
-                  <Play className="w-4 h-4" />
-                  <h2 className="text-sm font-bold tracking-wide">
+                  <Play className="w-5.5 h-5.5" />
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
                     보드 동작 제어
                   </h2>
                 </div>
@@ -1352,8 +1427,8 @@ export default function App() {
                 {/* Terminal Window Header */}
                 <div className="px-4 py-3 border-b border-sky-100 flex justify-between items-center flex-shrink-0">
                   <div className="flex items-center gap-2 text-sky-700">
-                    <TerminalIcon className="w-4 h-4" />
-                    <span className="text-sm font-bold tracking-wide">시리얼 모니터</span>
+                    <TerminalIcon className="w-5.5 h-5.5" />
+                    <span className="text-lg sm:text-xl font-black tracking-wide">시리얼 모니터</span>
                   </div>
 
                   <button
@@ -1366,8 +1441,12 @@ export default function App() {
                 </div>
 
                 {/* Terminal Logging Window */}
-                <div className="flex-grow p-4 m-4 mt-2 bg-white/90 border border-sky-100/60 rounded-xl overflow-y-auto font-mono text-xs text-sky-950 leading-relaxed shadow-inner">
-                  <pre className="whitespace-pre-wrap select-text font-mono">
+                <div 
+                  tabIndex={0}
+                  onKeyDown={handleTerminalKeyDown}
+                  className="flex-grow p-4 m-4 mt-2 bg-white/90 border border-sky-100/60 rounded-xl overflow-y-auto font-mono text-xs text-sky-950 leading-relaxed shadow-inner focus:outline-none focus:ring-1 focus:ring-sky-200"
+                >
+                  <pre ref={terminalPreRef} className="whitespace-pre-wrap select-text font-mono">
                     {terminalOutput}
                     <span className="terminal-cursor ml-0.5 text-sky-600" />
                   </pre>
@@ -1386,8 +1465,8 @@ export default function App() {
               {/* 1. USB Driver Download Card - Pastel Lavender */}
               <div className="bg-violet-50/80 border border-violet-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-violet-700">
-                  <Download className="w-4 h-4" />
-                  <h2 className="text-sm font-bold tracking-wide">
+                  <Download className="w-5.5 h-5.5" />
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
                     1. CP210x USB 드라이버 설치
                   </h2>
                 </div>
@@ -1418,8 +1497,8 @@ export default function App() {
               {/* 2. MicroPython Firmware Flasher Card - Pastel Coral */}
               <div className="bg-rose-50/80 border border-rose-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-rose-700">
-                  <Settings className="w-4 h-4" />
-                  <h2 className="text-sm font-bold tracking-wide">
+                  <Settings className="w-5.5 h-5.5" />
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
                     2. MicroPython 펌웨어 설치 (Web Flasher)
                   </h2>
                 </div>
@@ -1429,7 +1508,7 @@ export default function App() {
                 </p>
 
                 {isConnected && (
-                  <div className="flex items-start gap-2 text-xs text-rose-700 bg-rose-100/80 border border-rose-200 rounded-xl p-3 leading-relaxed">
+                  <div className="flex items-start gap-2 text-sm text-rose-700 bg-rose-100/80 border border-rose-200 rounded-xl p-3 leading-relaxed">
                     <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                     <span>
                       **경고**: 현재 대시보드 보드 연결이 활성화되어 있어 펌웨어 플래시가 불가능합니다. 상단 헤더의 **[연결 해제]** 버튼을 먼저 실행해 주십시오.
@@ -1437,7 +1516,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 text-xs text-slate-700 bg-white p-3 border border-rose-100 rounded-xl">
+                <div className="flex items-center gap-2 text-sm text-slate-700 bg-white p-3 border border-rose-100 rounded-xl">
                   <input
                     type="checkbox"
                     id="erase-flash"
@@ -1500,8 +1579,8 @@ export default function App() {
               <div className="bg-emerald-50/80 border border-emerald-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm min-h-[500px]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-700">
-                    <HardDrive className="w-4 h-4" />
-                    <h2 className="text-sm font-bold tracking-wide">
+                    <HardDrive className="w-5.5 h-5.5" />
+                    <h2 className="text-lg sm:text-xl font-black tracking-wide">
                       3. 보드 파일 및 라이브러리 관리자
                     </h2>
                   </div>
@@ -1575,7 +1654,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Predefined library quick install buttons */}
+                     {/* Predefined library quick install buttons */}
                     <div className="bg-white p-3 border border-emerald-100 rounded-xl flex flex-col gap-2 shadow-sm">
                       <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">인기 센서 라이브러리 원클릭 설치</span>
                       <div className="flex flex-wrap gap-2">
@@ -1585,6 +1664,13 @@ export default function App() {
                           className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
                         >
                           ⚙️ ssd1306.py (OLED 디스플레이) 설치
+                        </button>
+                        <button
+                          onClick={() => installPresetLibrary('tcs34725.py', TCS34725_CODE)}
+                          disabled={isUploadingFile}
+                          className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-100 rounded-lg transition-all active:scale-95 disabled:opacity-40"
+                        >
+                          ⚙️ tcs34725.py (컬러센서) 설치
                         </button>
                       </div>
                     </div>
