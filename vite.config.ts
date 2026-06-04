@@ -55,7 +55,7 @@ GPIO 2번 내장 LED를 0.5초 간격으로 켜고 끄는 코드입니다. machi
 
 **핵심 문법**
 - \`machine.Pin(2, Pin.OUT)\`: GPIO 2번을 출력 모드로 설정
-- \`led.value(1) / led.value(0)\`: 핀에 High(3.3V) / Low(0V) 신호 출력
+▶️ led.value(1) / led.value(0) 핀에 High(3.3V) / Low(0V) 신호 출력
 - \`time.sleep(0.5)\`: 0.5초 대기
 
 ESP32 / MICROPYTHON HARDWARE CONSTRAINTS (follow strictly):
@@ -110,20 +110,19 @@ while True:
     led.value(0)  # LED 끄기 (Low)
     time.sleep(0.5)
 __EXPLANATION__
-이 코드는 ESP32 보드의 내장 LED(일반적으로 GPIO 2번에 연결됨)를 0.5초 간격으로 켜고 끄는 가장 기본적인 'Blink' 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 내장 LED 점멸 제어 알고리즘
+  ESP32의 내장 LED가 연결된 GPIO 2번 핀을 디지털 출력 모드로 초기화한 후, while True 무한 루프를 통해 0.5초 주기로 LED 출력 상태를 켜짐(High, 3.3V)과 꺼짐(Low, 0V)으로 번갈아 전환하며 상태를 주기적으로 유지(sleep)하는 구조로 동작합니다.
 
-1. **라이브러리 불러오기**:
-   - \`machine\`: ESP32의 하드웨어 핀을 직접 제어하기 위한 MicroPython 모듈입니다.
-   - \`time\`: 시간 지연(sleep)을 처리하기 위한 모듈입니다.
-
-2. **하드웨어 핀 제어**:
-   - \`machine.Pin(2, machine.Pin.OUT)\`: GPIO 2번 핀을 신호를 내보내는 출력(OUT) 모드로 활성화합니다.
-
-3. **무한 루프 제어**:
-   - \`while True:\` 블록을 통해 꺼짐과 켜짐 동작을 무한히 반복합니다.
-   - \`led.value(1)\`은 핀에 High(3.3V) 신호를 주어 LED를 켜고, \`led.value(0)\`은 Low(0V) 신호를 주어 LED를 끕니다.
-   - 각 상태 변화 사이에 \`time.sleep(0.5)\`를 주어 0.5초(500ms) 동안 대기하게 합니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ led = machine.Pin(2, machine.Pin.OUT)
+  machine 모듈의 Pin 클래스 생성자를 호출하여 객체를 생성합니다. 첫 번째 인자 2는 제어할 GPIO 핀 번호를 지정하며, 두 번째 인자 Pin.OUT은 핀을 전류를 내보내는 디지털 출력 모드로 설정하는 상수입니다.
+▶️ led.value(1)
+  Pin 객체의 value() 메서드를 호출하여 출력 전압을 3.3V(High) 상태로 인가합니다. 이를 통해 연결된 회로에 전류가 흘러 LED를 켭니다.
+▶️ time.sleep(0.5)
+  time 모듈의 sleep() 함수를 호출하여 프로그램을 0.5초 동안 일시적으로 블로킹(대기) 상태로 만듭니다. LED의 현재 상태를 유지하여 육안으로 점멸을 확인할 수 있게 지연을 생성합니다.
+▶️ led.value(0)
+  Pin 객체의 value() 메서드를 호출하여 출력 전압을 0V(Low) 상태로 내립니다. 회로의 전류 흐름을 차단하여 LED를 끕니다.`;
 
 const WIFI_CODE = `# VibeESP32 - WiFi 연결 및 IP 출력
 import network
@@ -153,21 +152,21 @@ if wlan.isconnected():
 else:
     print("[시스템] WiFi 연결 실패. SSID와 비밀번호를 확인해 주세요.")
 __EXPLANATION__
-이 코드는 ESP32 보드를 주변의 WiFi 공유기(AP)에 연결하고, 할당받은 IP 주소를 터미널에 출력하는 네트워크 통신 기본 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 WiFi 연결 및 접속 대기 알고리즘
+  ESP32의 WiFi 모듈을 Station(클라이언트) 모드로 활성화하여 주변 공유기(AP)의 무선망을 검색하고, 미리 정의된 SSID와 비밀번호를 통해 연결 요청을 보냅니다. 이후 접속에 성공할 때까지 최대 10초 동안 1초 주기로 연결 여부를 반복하여 확인하고, 최종적으로 연결이 완료되면 할당받은 IP 등의 정보를 조회하여 네트워크에 안전하게 접속하는 구조입니다.
 
-1. **WiFi 모듈 설정**:
-   - \`network.WLAN(network.STA_IF)\`: ESP32를 다른 공유기에 접속하는 무선 단말기(Station) 모드로 설정합니다.
-   - \`wlan.active(True)\`: 무선 랜 카드를 활성화합니다.
-
-2. **접속 제어**:
-   - \`wlan.connect(ssid, password)\`: 지정한 SSID와 비밀번호를 이용해 WiFi 신호에 연결을 시도합니다.
-
-3. **연결 대기**:
-   - \`while\` 루프를 사용해 최대 10초 동안 1초 간격으로 연결 성공 여부(\`wlan.isconnected()\` )를 확인합니다.
-
-4. **네트워크 정보 획득**:
-   - 성공 시 \`wlan.ifconfig()\`를 호출하여 ESP32가 할당받은 IP 주소, 서브넷 마스크, 게이트웨이, DNS 주소 등의 네트워크 설정을 확인하여 콘솔에 인쇄합니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ wlan = network.WLAN(network.STA_IF)
+  network 모듈의 WLAN 클래스 생성자를 호출합니다. 인자 STA_IF는 ESP32가 무선 클라이언트로 동작하는 Station 모드를 활성화하는 네트워크 전용 상수입니다.
+▶️ wlan.active(True)
+  WLAN 객체의 active() 메서드를 호출하고 인자로 True를 전달하여 ESP32 내부의 WiFi 무선 하드웨어 인터페이스 활성화 및 전원을 공급합니다.
+▶️ wlan.connect(ssid, password)
+  WLAN 객체의 connect() 메서드를 사용하여 지정한 무선 공유기(AP)의 ssid와 접속 password를 인자로 넘겨주어 무선 인증 및 결합을 백그라운드에서 요청합니다.
+▶️ wlan.isconnected()
+  WiFi 장치가 공유기에 성공적으로 연결되어 IP 주소를 할당받았는지 확인하는 메서드입니다. 성공 시 True, 진행 중이거나 실패 시 False인 부울(Boolean) 값을 반환합니다.
+▶️ wlan.ifconfig()
+  현재 장치에 설정된 네트워크 매개변수 정보를 얻어오는 메서드입니다. (IP 주소, 서브넷 마스크, 게이트웨이, DNS 서버) 형태의 4개 요소를 가진 튜플(Tuple) 자료형을 반환합니다.`;
 
 const DHT11_CODE = `# VibeESP32 - DHT11 온습도 센서 측정 (GPIO 27)
 import machine
@@ -190,19 +189,21 @@ while True:
     
     time.sleep(2)  # DHT11 센서는 최소 2초 간격 측정 권장
 __EXPLANATION__
-이 코드는 GPIO 27번 핀에 연결된 DHT11 센서로부터 주기적으로 주변 대기 온도와 상대 습도 데이터를 읽어와서 출력해 주는 모니터링 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 실시간 온습도 모니터링 및 예외 처리 알고리즘
+  ESP32의 GPIO 27번 핀을 온습도 데이터 전송용으로 사용하기 위해 dht 라이브러리로 센서 객체를 생성합니다. 이후 while True 무한 루프에서 2초 단위로 센서에 측정을 명령하고, 내부 레지스터에서 디지털 온도와 습도 값을 가져와 출력합니다. 이때 통신 불량 및 센서 분리 현상으로 발생할 수 있는 하드웨어 에러(OSError)에 대비하여 try-except 예외 처리 구문으로 안정적인 구동을 유지하는 구조입니다.
 
-1. **센서 연결 및 제어**:
-   - \`import dht\`: 온습도 측정용 DHT 라이브러리를 임포트합니다.
-   - \`dht.DHT11(machine.Pin(27))\`: GPIO 27번 디지털 핀을 DHT11 센서용 데이터 입력 라인으로 구성합니다.
-
-2. **안정적인 데이터 수집**:
-   - \`sensor.measure()\`를 통해 물리적인 측정을 수행한 뒤, \`temperature()\`와 \`humidity()\` 함수로 값을 추출합니다.
-   - DHT11 센서는 하드웨어 한계상 너무 자주 읽으면 응답을 멈추기 때문에 루프 끝에 \`time.sleep(2)\`로 2초의 딜레이를 주었습니다.
-
-3. **try-except 예외 처리**:
-   - 센서 핀의 연결이 헐겁거나 단선될 때 발생하는 \`OSError\` 예외를 안전하게 잡아내어(\`except OSError\`), 에러 메시지만 출력하고 루프가 뻗지 않고 측정을 계속 시도하게 합니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ sensor = dht.DHT11(machine.Pin(27))
+  dht 모듈 of DHT11 클래스 생성자를 사용해 객체를 선언합니다. 인자로 전달하는 machine.Pin(27)은 GPIO 27번 핀을 사용해 센서와 단선 통신(1-Wire)을 개시하겠다는 의미입니다.
+▶️ sensor.measure()
+  DHT11 객체의 measure() 메서드를 호출하여 센서 물리 칩에 온도 및 습도의 현재 상황 측정을 지시하고 결과값을 내부 메모리에 버퍼링합니다.
+▶️ sensor.temperature()
+  최근 성공적으로 측정되어 센서 내부 레지스터에 기록된 섭씨 온도 수치를 가져오는 메서드이며, 정수(Integer) 형태의 온도 데이터를 반환합니다.
+▶️ sensor.humidity()
+  최근 측정된 대기 중의 상대 습도 수치를 가져오는 메서드이며, 정수(Integer) 형태의 백분율(%) 데이터를 반환합니다.
+▶️ except OSError as e
+  try 블록 내부에서 발생할 수 있는 입출력(I/O) 및 통신 하드웨어 계통의 오류인 OSError 예외를 감지하여 포착하고 변수 e에 할당합니다. 프로그램이 강제 종료되지 않도록 방지하는 역할을 합니다.`;
 
 const NEOPIXEL_CODE = `# VibeESP32 - NeoPixel 무지개 회전 효과 (GPIO 14, 12개 LED)
 from machine import Pin
@@ -234,20 +235,19 @@ while True:
         np.write()
         time.sleep_ms(15)  # 부드러운 회전 효과를 위한 지연 시간
 __EXPLANATION__
-이 코드는 GPIO 14번 디지털 출력 핀에 연결된 12구의 NeoPixel RGB LED 스트립에 대해 부드러운 무지개 색상이 순환하는 효과(Rainbow Cycle)를 제공하는 화려한 비주얼 제어 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 NeoPixel 무지개 스펙트럼 회전 알고리즘
+  GPIO 14번 핀에 연결된 12구 NeoPixel LED 바를 제어하기 위해 전용 객체를 메모리에 생성합니다. 0~255 범위의 입력값에 따라 3원색(Red, Green, Blue)의 강도를 유기적으로 변화시켜 부드러운 색 변화를 만들어내는 wheel() 함수를 구성합니다. 이후 프레임 오프셋 루프와 12개 LED에 색상을 분배하는 이중 루프를 돌면서 순차적으로 색상값을 버퍼에 기록하고, 15ms 간격으로 출력 데이터를 갱신하여 무지개빛이 회전하는 시각적 효과를 구현하는 구조입니다.
 
-1. **라이브러리 불러오기**:
-   - \`neopixel\`: WS2812B(NeoPixel) LED 소자를 어드레서블 방식으로 편리하게 제어하기 위한 라이브러리입니다.
-   - \`NeoPixel(pin, 12)\`: 14번 핀에 12개의 픽셀이 직렬 연결되어 있음을 지정합니다.
-
-2. **컬러 스펙트럼 변환 (\`wheel\` 함수)**:
-   - 0부터 255까지의 단일 입력값(\`pos\`)을 빨강 ➡️ 초록 ➡️ 파랑 ➡️ 빨강으로 점진 변환하는 3차원 RGB 튜플 \`(R, G, B)\`로 매핑하여 무지개 색상을 구현합니다.
-
-3. **부드러운 애니메이션 구현**:
-   - 외부 루프(\`j\`)와 내부 루프(\`i\`)를 중첩하여 각 픽셀 간 적절한 위상차(\`i * 256 // 12\`)를 부여해 색을 입힙니다.
-   - \`np.write()\`를 호출해야 계산된 색상이 실제 LED 소자에 동시 전송되어 갱신됩니다.
-   - \`time.sleep_ms(15)\`를 추가하여 회전이 너무 빠르게 돌아 깨지지 않고 사람 눈에 부드럽게 보이도록 조정했습니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ np = NeoPixel(pin, 12)
+  neopixel 모듈에서 가져온 NeoPixel 클래스의 생성자를 호출합니다. 인자로 전달된 디지털 출력 설정 핀 객체(pin)와 결합된 LED 소자 수인 12를 설정하여 픽셀 상태를 제어할 가상 버퍼 배열을 초기화합니다.
+▶️ rc_index = (i * 256 // 12) + j
+  12개의 LED 소자 전체에 무지개 스펙트럼의 다른 파장이 고르게 분산되도록 인덱스를 분할 계산하는 수식입니다. 나눗셈의 몫 연산(//)을 적용해 정수 값을 도출하고, 프레임 오프셋 j를 더해 색상 위치를 이동시킵니다.
+▶️ np[i] = wheel(rc_index & 255)
+  비트 연산자 & 255를 통해 인덱스가 255를 넘어갈 때 자동으로 순환하도록 나머지 연산 처리를 하고, wheel 함수의 리턴 값인 (R, G, B) 튜플을 np 객체의 i번째 인덱스 버퍼에 할당합니다.
+▶️ np.write()
+  NeoPixel 객체의 메모리 버퍼에 기록된 12구의 RGB 값 데이터를 일선 직렬 통신 신호로 바꾸어 실제 LED 물리 칩셋으로 일괄 송신하고, 빛깔을 물리적으로 반영합니다.`;
 
 const WEBSERVER_CODE = `# VibeESP32 - 간단한 웹 서버 구동
 import machine
@@ -312,22 +312,23 @@ else:
         except Exception as e:
             print("[에러] 소켓 통신 오류:", e)
 __EXPLANATION__
-이 코드는 ESP32 보드를 공유기(WiFi)에 연동한 후 내부 망의 IP 주소 80번 포트(HTTP 기본 포트)를 열어 간단한 웹페이지 웹 서버 역할을 하도록 만드는 통신 제어 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 TCP 소켓 기반 경량 웹 서버 구동 알고리즘
+  WiFi에 연결하여 ESP32의 로컬 IP 주소를 할당받은 뒤, 네트워크 소켓 API를 사용해 웹의 표준 포트인 80번 대역에서 대기하는 TCP 서버를 개방합니다. 이후 while True 루프 내에서 클라이언트(브라우저)의 접속 요청을 대기하다가 연결이 수립되면 클라이언트의 HTTP 요청 헤더를 수집하고, 미리 작성된 HTML 문서 및 스타일 정보가 담긴 HTTP 응답 프레임을 소켓을 통해 전송한 후 소켓 연결을 닫아 리소스를 환원하는 방식으로 작동하는 구조입니다.
 
-1. **WiFi 모드 준비**:
-   - 무선 인터넷 공유기에 접속하여 ESP32의 고유 내부 IP 주소를 발급받습니다.
-
-2. **소켓 프로그래밍**:
-   - \`socket.socket(socket.AF_INET, socket.SOCK_STREAM)\`: TCP/IP 프로토콜 기반 소켓을 정의합니다.
-   - \`s.bind(('', 80))\`: 80번 웹 포트를 열어줍니다.
-   - \`s.listen(5)\`: 클라이언트의 연결을 받을 수 있도록 최대 5개의 연결 대기 큐를 구성합니다.
-
-3. **HTTP 응답 처리**:
-   - \`conn, addr = s.accept()\`: 웹 브라우저가 보드의 IP 주소로 접속하면 연결을 승인합니다.
-   - \`conn.recv(1024)\`: 웹 브라우저 접속 요청 헤더를 확인합니다.
-   - \`conn.send(response)\`: 브라우저에게 "Hello from VibeESP32!"와 한글 소개가 적용된 깔끔한 카드 스타일 HTML 레이아웃 페이지를 반환합니다.
-   - 전송을 완료한 후 \`conn.close()\`로 개별 세션 연결 소켓을 종료하여 리소스를 해제합니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  socket 모듈의 socket 생성자를 호출하여 네트워크 소켓 객체를 빌드합니다. AF_INET은 IPv4 인터넷 프로토콜 패밀리를 정의하고, SOCK_STREAM은 안정적인 데이터 전송을 보장하는 TCP(Transmission Control Protocol) 타입을 사용하도록 지정합니다.
+▶️ s.bind(('', 80))
+  socket 객체의 bind() 메서드를 호출하여 소켓에 IP 주소와 포트 번호를 지정 결합합니다. 주소를 빈 문자열('')로 설정하면 들어오는 모든 인터페이스의 IP로부터 접속을 허용하며, 80은 웹 통신 표준 포트 번호를 가리킵니다.
+▶️ s.listen(5)
+  listen() 메서드를 통해 소켓을 외부 접속 요청을 수신 대기할 수 있는 서버 소켓 상태로 활성화합니다. 인자로 넘겨진 5는 최대 동시 대기 가능한 클라이언트 연결 요청 대기열(Backlog Queue)의 크기입니다.
+▶️ conn, addr = s.accept()
+  클라이언트의 접속이 있을 때까지 동기적으로 프로그램을 정지(블로킹)하고 기다리는 메서드입니다. 연결이 성공적으로 이루어지면 통신용 신규 소켓 객체 conn과 접속한 상대방 IP/포트 튜플인 addr을 반환합니다.
+▶️ conn.send(response)
+  통신 연결 소켓 conn을 통해 원격지 브라우저 클라이언트 방향으로 준비된 HTML 콘텐츠 및 HTTP 응답 규격 텍스트 문자열을 바이트 스트림으로 송신하는 메서드입니다.
+▶️ conn.close()
+  전송 처리가 마무리된 통신용 개별 소켓 conn을 닫고 접속을 해제합니다. 이를 통해 시스템 소켓 파일 디스크립터 및 사용된 내부 힙 메모리를 해제하여 장치 오동작을 예방합니다.`;
 
 const WEATHER_CODE = `# VibeESP32 - 서울 날씨 정보 가져오기 & OLED & NeoPixel 제어
 import machine
@@ -429,18 +430,23 @@ else:
             
         time.sleep(300) # 5분 간격 갱신
 __EXPLANATION__
-이 코드는 WiFi를 연결하고 OpenWeatherMap API를 호출해 서울의 현재 날씨와 기온을 수집한 뒤, 그 결과를 터미널과 I2C 128x64 OLED 디스플레이에 노출하고 동시에 날씨 상태(맑음, 비/눈, 흐림)에 따라 GPIO 14번에 연결된 12구 NeoPixel LED의 색상을 다르게 켜 주는 종합 스마트 홈 연동 IoT 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 실시간 날씨 API 연동 및 하드웨어 시각화 알고리즘
+  SoftI2C 통신으로 OLED 디스플레이를 초기화하고, GPIO 14번 핀에 NeoPixel LED 모듈을 연결한 후 무선 네트워크에 연결합니다. 이후 5분 간격의 무한 루프 내에서 OpenWeatherMap의 날씨 정보 REST API로 HTTP GET 요청을 보내고, 반환된 JSON 데이터에서 서울의 기온 및 기상 상태 키워드를 파싱합니다. 파싱된 텍스트 정보는 OLED 디스플레이 화면에 정렬하여 표시하고, 기상 키워드(Clear, Rain 등)에 따라 NeoPixel의 조명 색상을 동적으로 매핑 변경하여 물리적인 피드백을 사용자에게 보여주는 연동식 구조입니다.
 
-1. **인터넷 연결 및 HTTP 통신**:
-   - \`network.WLAN\`를 사용해 공유기에 접속한 후 마이크로파이썬 전용 \`urequests.get()\` 라이브러리로 OpenWeatherMap API 서버에 HTTP GET 요청을 보냅니다.
-   - 받아온 JSON 데이터(\`response.json()\` )로부터 온도(\`temp\` ) 및 주요 날씨 지표(\`weather[0]['main']\` )를 파싱합니다.
-
-2. **OLED 모니터링 출력**:
-   - I2C SSD1306 OLED 디스플레이를 활용해 도시명, 온도, 날씨 상태를 실시간 출력합니다.
-
-3. **날씨별 네오픽셀 무드 색상 변환**:
-   - 날씨 맑음일 때는 주황빛 빨강, 눈/비가 올 때는 차가운 파란색, 흐리거나 기타 상태일 때는 연한 백색으로 변환하여 실시간 날씨를 시각화합니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
+  machine 모듈의 SoftI2C 클래스를 호출해 가상 I2C 인터페이스를 선언합니다. 하드웨어 의존성이 배제된 소프트웨어 방식이며, 22번 핀을 클럭(SCL), 21번 핀을 데이터(SDA) 전송용으로 사용하도록 지정합니다.
+▶️ response = urequests.get(URL)
+  urequests 모듈의 get() 메서드를 호출하여 지정된 날씨 웹 서버 API URL로 HTTP GET 요청 패킷을 전달하고, 통신 소켓을 생성하여 서버로부터의 응답 결과를 저장한 객체를 반환받습니다.
+▶️ data = response.json()
+  response 객체의 json() 메서드를 호출하여 원격지 서버가 리턴한 JSON 포맷의 문자열 바이트를 파이썬의 중첩 딕셔너리(Dictionary) 및 리스트 구조체 객체로 변환하여 로드합니다.
+▶️ temp = data['main']['temp']
+  변환된 딕셔너리 data 구조체에서 키 체인을 순차 추적하여 최하위 데이터 필드인 현재 섭씨 온도 실수(Float) 값을 추출하고 변수 temp에 저장합니다.
+▶️ if "clear" in weather_main.lower()
+  날씨 상태 정보 문자열인 weather_main을 소문자로 일치시킨(lower()) 다음, 멤버십 연산자 in을 활용해 문자열 내부에 특정 키워드("clear")가 포함되어 있는지 진단하는 조건부 제어식입니다.
+▶️ response.close()
+  수신에 사용한 HTTP 응답 커넥션 리소스와 소켓을 완전히 제거하는 메서드입니다. 시스템 자원의 고갈을 초래하는 메모리 누수를 원천 차단하기 위해 작업 종료 즉시 소켓을 파괴합니다.`;
 
 const TCS34725_CODE = `# VibeESP32 - TCS34725 컬러센서를 이용한 NeoPixel 무드등 (SDA: 17, SCL: 16)
 from machine import Pin, SoftI2C
@@ -458,7 +464,7 @@ class TCS34725:
         if sensor_id not in (0x44, 0x4D, 0x10):
             raise RuntimeError("Could not find TCS34725 sensor.")
         # 센서 전원 켜기 (Power ON) 및 RGBC 활성화
-        self.i2c.writeto_mem(self.address, 0x80, b'\\\\x03')
+        self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
         self.integration_time(24)
         self.gain(4)
 
@@ -532,20 +538,23 @@ while True:
         
     time.sleep(0.5) # 0.5초 간격으로 컬러 센싱 및 무드등 갱신
 __EXPLANATION__
-이 코드는 SDA=Pin(17), SCL=Pin(16) 핀으로 연결된 TCS34725 RGB 컬러센서로부터 실시간 컬러 센싱 값을 받아온 뒤, 주변 밝기(Clear 채널)에 비례하게 정규화된 8비트 R, G, B 값으로 스케일링하여 GPIO 14번에 연결된 12구 NeoPixel LED 바에 동일한 컬러로 비춰주는 스마트 컬러 무드등(mood light) 예제입니다.
+💡 1. 전체 알고리즘 구조
+📌 컬러 센싱 기반 실시간 Mood Light 제어 알고리즘
+  I2C 버스를 사용하여 TCS34725 컬러 센서와 통신하는 커스텀 파이썬 드라이버 클래스를 인스턴스화하고, 14번 핀에 연결된 NeoPixel을 준비합니다. 0.5초 단위의 제어 루프를 가동하여 센서 레지스터로부터 적색(Red), 녹색(Green), 청색(Blue), 밝기(Clear) 채널의 16비트 물리 광량 데이터를 독출합니다. 취득한 원시 데이터를 전체 조도 값에 비례하여 8비트(0~255) RGB 영역으로 정규화 및 크기 보정을 거치고, 최종 도출된 색상 정보를 12구 NeoPixel LED 전체에 실시간 동기화하여 투사하는 구조입니다.
 
-1. **자체 드라이버 내장 (Standalone)**:
-   - 보드에 번거롭게 별도의 \`tcs34725.py\` 라이브러리 파일을 올릴 필요 없이, 코드 내부에 드라이버 클래스를 직접 포함하고 있어 단독으로 즉시 오류 없이 정상 작동합니다.
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ sensor_id = self.i2c.readfrom_mem(self.address, 0x92, 1)[0]
+  SoftI2C 객체의 readfrom_mem() 메서드를 사용하여 센서 주소(0x29)의 레지스터 주소 0x92(ID 레지스터)로부터 1바이트 크기의 값을 조회합니다. 이 반환된 바이트 리스트의 첫 번째 요소([0])를 검증하여 칩의 고유 식별 번호가 유효한지 확인합니다.
+▶️ self.i2c.writeto_mem(self.address, 0x80, b'\\x03')
+  센서의 내부 0x80 제어 레지스터 메모리에 1바이트 바이너리 데이터 0x03을 직접 입력하는 메서드입니다. 센서 내부의 RGBC 적분기(ADC) 및 내부 전원을 깨워 실질적인 동작(Active)을 지시합니다.
+▶️ ustruct.unpack('<H', data[0:2])[0]
+  ustruct 모듈의 unpack() 함수를 활용하여 2바이트 크기의 원시 바이너리 스트림 데이터를 튜플 형태로 변환 디코딩합니다. 포맷 지시자 <H는 리틀 엔디언(Little-Endian) 방식의 부호 없는 2바이트 정수형(Unsigned Short) 형식임을 나타냅니다.
+▶️ r_scale = int((r / c) * 255 * 1.5)
+  수집된 원시 적색 조도값(r)을 전체 수광 광량(c)으로 나누어 명도 변화에 중립적인 순수 색상비를 추출합니다. 여기에 8비트 상한 상수인 255와 시인성 보정을 위한 상수 1.5를 곱해 형변환(int)을 가하는 색상 보정 수식입니다.
+▶️ red = min(max(r_scale, 0), 255)
+  수치 처리된 데이터가 8비트 가용 컬러 범위(0~255)를 벗어나 오버플로우나 언더플로우를 일으키지 않도록 최소 제한(max)과 최대 제한(min) 중첩 함수를 사용하여 데이터를 안전한 한계 내로 고정 및 클리핑합니다.`;
 
-2. **컬러 스케일 가공 및 노이즈 보정**:
-   - 광량 및 밝기 데이터(\`c\`) 비례 나눗셈 방식을 거친 후 1.5배의 강도를 주어 눈에 쉽게 띄도록 하고, 센서 데이터가 없을 때(\`c <= 0\`) 발생할 수 있는 Zero-Division 에러 및 0~255 제한 오버플로우를 완벽 차단 처리했습니다.
-
-3. **NeoPixel 실시간 무드 갱신**:
-   - 0.5초 주기로 센서가 주변 사물의 색깔을 감지하면 LED 12구의 픽셀 색상이 동적 반응하여, 사물이나 반사판의 색을 그대로 따라 빛을 표현합니다.
-`;
-
-const TETRIS_CODE = `# VibeESP32 - 128x64 OLED 테트리스 게임
-import machine
+const TETRIS_CODE = `import machine
 import time
 import random
 from machine import Pin, SoftI2C
@@ -563,25 +572,28 @@ touch_drop  = Pin(34, Pin.IN)
 # 2. 게임 영역 및 그래픽 크기 정의 (화면 절반 크기로 확장)
 BOARD_WIDTH = 10
 BOARD_HEIGHT = 20
-BLOCK_SIZE_X = 6  
-BLOCK_SIZE_Y = 3  # 세로는 OLED 높이(64)에 맞추어 3픽셀 유지 (20칸 * 3 = 60픽셀)
+
+BLOCK_SIZE_X = 6
+BLOCK_SIZE_Y = 3
+
 OFFSET_X = 2
 OFFSET_Y = 2
 
 # 3. 테트리스 미노(블록) 모양 정의
 SHAPES = [
-    [[1, 1, 1, 1]], 
-    [[1, 1, 1], [0, 1, 0]], 
-    [[1, 1, 1], [1, 0, 0]], 
-    [[1, 1, 1], [0, 0, 1]], 
-    [[1, 1], [1, 1]], 
-    [[1, 1, 0], [0, 1, 1]], 
-    [[0, 1, 1], [1, 1, 0]]  
+    [[1, 1, 1, 1]],
+    [[1, 1, 1], [0, 1, 0]],
+    [[1, 1, 1], [1, 0, 0]],
+    [[1, 1, 1], [0, 0, 1]],
+    [[1, 1], [1, 1]],
+    [[1, 1, 0], [0, 1, 1]],
+    [[0, 1, 1], [1, 1, 0]]
 ]
 
 board = [[0] * BOARD_WIDTH for _ in range(BOARD_HEIGHT)]
 score = 0
 game_over = False
+
 current_piece = None
 piece_x = 0
 piece_y = 0
@@ -613,33 +625,29 @@ def lock_piece(piece, offset_x, offset_y):
         for c, val in enumerate(row):
             if val and offset_y + r >= 0:
                 board[offset_y + r][offset_x + c] = 1
-                
+
     new_board = [row for row in board if any(v == 0 for v in row)]
     lines_cleared = BOARD_HEIGHT - len(new_board)
     score += lines_cleared * 100
-    
+
     while len(new_board) < BOARD_HEIGHT:
         new_board.insert(0, [0] * BOARD_WIDTH)
-        
+
     for i in range(BOARD_HEIGHT):
         board[i] = new_board[i]
 
 def draw_game():
     oled.fill(0)
-    
-    # 변경된 블록 크기에 맞춰 게임 테두리 계산 (가로 10칸 * 6픽셀 = 60픽셀)
+
     game_w = BOARD_WIDTH * BLOCK_SIZE_X + 2
     game_h = BOARD_HEIGHT * BLOCK_SIZE_Y + 2
     oled.rect(OFFSET_X - 1, OFFSET_Y - 1, game_w, game_h, 1)
-    
-    # 고정된 블록 그리기
+
     for r in range(BOARD_HEIGHT):
         for c in range(BOARD_WIDTH):
             if board[r][c]:
-                # 채워지는 블록 간의 구분을 위해 테두리 1픽셀씩 여백 분리
                 oled.fill_rect(OFFSET_X + c * BLOCK_SIZE_X, OFFSET_Y + r * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
-                
-    # 현재 조작 중인 블록 그리기
+
     if current_piece:
         for r, row in enumerate(current_piece):
             for c, val in enumerate(row):
@@ -648,68 +656,61 @@ def draw_game():
                     px = piece_x + c
                     if py >= 0:
                         oled.fill_rect(OFFSET_X + px * BLOCK_SIZE_X, OFFSET_Y + py * BLOCK_SIZE_Y, BLOCK_SIZE_X - 1, BLOCK_SIZE_Y - 1, 1)
-                        
-    # 우측 UI 텍스트 위치 조정 (X좌표 70)
+
     text_x = 70
     oled.text("TETRIS", text_x, 5, 1)
     oled.text("SCORE:", text_x, 25, 1)
     oled.text(str(score), text_x, 38, 1)
-    
+
     if game_over:
         oled.fill_rect(5, 20, 118, 25, 0)
         oled.rect(5, 20, 118, 25, 1)
         oled.text("GAME OVER", 28, 28, 1)
-        
+
     oled.show()
 
 # 4. 초기 구동 설정
 get_new_piece()
 last_fall_time = time.ticks_ms()
-fall_interval = 600  
+fall_interval = 600
+
 last_left_state = False
 last_right_state = False
 last_rot_state = False
 last_loop_time = time.ticks_ms()
 
-# 첫 화면 렌더링
 draw_game()
 
 # 5. 메인 루프
 while not game_over:
     current_time = time.ticks_ms()
-    
-    # 터치 센서 값 동기화
+
     pressed_left  = (touch_left.value() == 1)
     pressed_right = (touch_right.value() == 1)
     pressed_rot   = (touch_rot.value() == 1)
     pressed_drop  = (touch_drop.value() == 1)
-    
-    # 왼쪽 이동
+
     if pressed_left and not last_left_state:
         if not check_collision(current_piece, piece_x - 1, piece_y):
             piece_x -= 1
     last_left_state = pressed_left
-    
-    # 오른쪽 이동
+
     if pressed_right and not last_right_state:
         if not check_collision(current_piece, piece_x + 1, piece_y):
             piece_x += 1
     last_right_state = pressed_right
-    
-    # 회전
+
     if pressed_rot and not last_rot_state:
         rotated = rotate_piece(current_piece)
         if not check_collision(rotated, piece_x, piece_y):
             current_piece = rotated
     last_rot_state = pressed_rot
-    
-    # 소프트 드롭
+
     if pressed_drop:
         current_fall_interval = 60
     else:
         current_fall_interval = fall_interval
-        
-    # 자동 하강
+
     if time.ticks_diff(current_time, last_fall_time) > current_fall_interval:
         if not check_collision(current_piece, piece_x, piece_y + 1):
             piece_y += 1
@@ -719,32 +720,29 @@ while not game_over:
             if check_collision(current_piece, piece_x, piece_y):
                 game_over = True
         last_fall_time = current_time
-        
-    # 디스플레이 갱신 (약 25 FPS 제한)
+
     if time.ticks_diff(current_time, last_loop_time) > 40:
         draw_game()
         last_loop_time = current_time
-        
+
     time.sleep_ms(10)
 
-# 게임 오버
-draw_game()
-__EXPLANATION__
-이 코드는 ESP32 보드에 SoftI2C 방식으로 연결된 128x64 해상도의 ssd1306 OLED 디스플레이와 4개의 디지털 입력 핀을 사용하여 작동하는 미니 테트리스 게임 예제입니다.
+draw_game()__EXPLANATION__
+💡 1. 전체 알고리즘 구조
+📌 OLED 디스플레이 기반 테트리스 게임 알고리즘
+  OLED를 SoftI2C로 마운트하고 4개의 GPIO 입력 핀을 조작용 풀다운 스위치로 초기 설정한 뒤, 가로 10 x 세로 20의 2차원 배열 격자 공간을 게임 보드로 정의합니다. while not game_over 메인 루프를 통해 입력 핀의 상태를 체크해 블록을 좌우 이동 및 회전시키고, 내부 타이머(ticks_ms)를 측정해 주기적으로 블록을 자동 하강시킵니다. 하강하는 블록이 바닥이나 잔해와 겹치면 충돌 감지(check_collision) 루틴으로 하강을 멈추고 고정(lock_piece)시키며, 가득 찬 행이 감지되면 배열 연산으로 해당 행을 삭제하고 점수를 올리면서 OLED 화면에 초당 25회 화면 프레임을 갱신하여 렌더링하는 게임 루프 구조입니다.
 
-1. **디바이스 초기화 및 하드웨어 설정**:
-   - \`sda=Pin(21)\`, \`scl=Pin(22)\` 핀을 이용해 I2C 버스를 설정하고 ssd1306 OLED 디스플레이 드라이버를 생성합니다.
-   - \`Pin(33)\`, \`Pin(32)\`, \`Pin(35)\`, \`Pin(34)\`을 각각 디지털 입력(IN) 모드로 설정하여 좌, 우, 회전, 소프트 드롭 조작 스위치 입력을 판별합니다.
-
-2. **게임 공간 및 렌더링 방식 최적화 (화면 절반 크기 확장)**:
-   - 가로 10칸, 세로 20칸의 테트리스 격자 보드 데이터를 2차원 배열(\`board\`)로 관리합니다.
-   - OLED 디스플레이의 좌측 절반(60픽셀 너비)을 가득 채우도록 블록당 가로 크기(\`BLOCK_SIZE_X\`)를 6픽셀, 세로 크기(\`BLOCK_SIZE_Y\`)를 3픽셀로 설계해 화면을 크게 그립니다.
-   - 우측의 나머지 68픽셀 영역에는 "TETRIS", 현재 스코어(SCORE), 게임오버(GAME OVER) 화면 등의 정보 텍스트를 정렬해 띄웁니다.
-
-3. **조작 제어 및 프레임 제한 루프**:
-   - \`random.choice\`를 이용해 무작위로 테트리스 블록을 지속 스폰하고 90도 회전 연산 및 벽/블록 충돌 감지 연산을 동반합니다.
-   - \`time.ticks_ms()\` 타이머를 활용하여 블록의 자동 하강 주기와 화면 주사율 제한(약 25 FPS)을 제어하고, 소프트 드롭 버튼을 길게 터치 시 하강 주기를 단축시킵니다.
-`;
+🔍 2. 주요 코드 라인별 세부 설명
+▶️ touch_left = Pin(33, Pin.IN)
+  machine 모듈의 Pin 클래스를 사용해 GPIO 33번 단자를 디지털 입력을 받는 핀(Pin.IN)으로 객체화합니다. 유저가 왼쪽 이동 버튼을 눌러 공급한 전압 변화 신호를 감지합니다.
+▶️ rotated = [list(x) for x in zip(*shape[::-1])]
+  행렬의 축을 전환하여 회전 상태를 얻어내는 파이썬 리스트 컴프리헨션 구문입니다. shape[::-1]을 통해 2차원 배열 행의 순서를 뒤집고, 언패킹 연산자 *와 zip 함수를 묶어 열 단위 요소들을 하나의 튜플로 결합한 후, 각 튜플들을 다시 리스트 형태로 환원하여 시계 방향 90도 회전을 완수합니다.
+▶️ check_collision(piece, offset_x, offset_y)
+  인자로 들어온 블록 데이터(piece)와 이동하고자 하는 가상 위치(offset_x, offset_y) 정보를 게임 보드 격자 배열 및 외곽선 벽 좌표 범위와 겹치는지 비교 연산하여, 충돌이 발생하면 True, 통과 시 False를 리턴하는 충돌 판별 사용자 정의 함수입니다.
+▶️ lines_cleared = BOARD_HEIGHT - len(new_board)
+  현재 게임 공간 내에서 수평 라인 내부에 빈 셀(0)이 없는 완결된 라인들을 삭제하고 축소된 임시 보드인 new_board의 행 개수와 본래의 크기 상수를 차감 연산합니다. 이 뺄셈 수식의 격차를 통하여 몇 개의 라인이 지워졌는지 파악합니다.
+▶️ time.ticks_diff(current_time, last_fall_time)
+  time 모듈에서 제공하는 ticks_diff() 메서드입니다. 시스템 틱 카운터 정밀 레지스터가 오버플로우되어 마이너스 음수 혹은 0으로 리셋(롤오버)되는 환경에서도 두 입력 시간 인자의 실제 경과 편차(오프셋)를 하드웨어 단에서 정밀하게 연산해 줍니다.`;
 
 async function writeStaticCodeStream(res: any, code: string) {
   res.writeHead(200, {

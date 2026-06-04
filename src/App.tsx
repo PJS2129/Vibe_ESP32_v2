@@ -1336,6 +1336,88 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  // Beautiful code explanation formatter (removes markdown hashes/asterisks/backticks and adds emojis)
+  const renderExplanation = (text: string) => {
+    if (!text) return <span className="text-slate-500 italic font-title">코드 설명이 아직 생성되지 않았습니다. 자연어 명령으로 코드를 생성해 보세요.</span>;
+    
+    // Format the text by lines
+    const lines = text.split('\n');
+    return lines.map((line, idx) => {
+      // 0. Pre-clean escaped markdown characters and trim whitespace
+      let content = line.trim().replace(/\\`/g, '`').replace(/\\\*/g, '*').replace(/\\_/g, '_');
+      
+      // 1. Heading 1 format: ### 1. 전체 알고리즘 구조 -> 💡 1. 전체 알고리즘 구조
+      if (content.startsWith('### 1.') || content.startsWith('1. 전체 알고리즘 구조') || content.startsWith('💡 1.')) {
+        content = content.replace(/💡\s*/g, '').replace(/###\s*/g, '').replace(/1\.\s*/g, '').replace(/#/g, '').replace(/\*/g, '').trim();
+        content = '💡 1. ' + content;
+        return (
+          <div key={idx} className="font-title font-black text-sm sm:text-base text-slate-900 mt-4 mb-2 flex items-center gap-1.5 border-b border-slate-200 pb-1.5 flex-wrap">
+            {content}
+          </div>
+        );
+      }
+      
+      // 2. Heading 2 format: ### 2. 주요 코드 라인별 세부 설명 -> 🔍 2. 주요 코드 라인별 세부 설명
+      if (content.startsWith('### 2.') || content.startsWith('2. 주요 코드 라인별 세부 설명') || content.startsWith('🔍 2.')) {
+        content = content.replace(/🔍\s*/g, '').replace(/###\s*/g, '').replace(/2\.\s*/g, '').replace(/#/g, '').replace(/\*/g, '').trim();
+        content = '🔍 2. ' + content;
+        return (
+          <div key={idx} className="font-title font-black text-sm sm:text-base text-slate-900 mt-6 mb-2 flex items-center gap-1.5 border-b border-slate-200 pb-1.5 flex-wrap">
+            {content}
+          </div>
+        );
+      }
+
+      // 3. Generic Heading format: ### Title -> 📌 Title
+      if (content.startsWith('###')) {
+        content = content.replace(/###\s*/, '📌 ').replace(/#/g, '').replace(/\*/g, '').trim();
+        return (
+          <div key={idx} className="font-title font-bold text-xs sm:text-sm text-slate-900 mt-4 mb-2 flex items-center gap-1">
+            {content}
+          </div>
+        );
+      }
+      
+      // 4. Algorithm name item format: - **Name**: or 📌 Name -> 📌 Name
+      if (content.startsWith('- **') || content.startsWith('-**') || content.startsWith('📌')) {
+        content = content.replace(/-\s*\*\*/, '').replace(/\*\*/g, '').replace(/^-/, '').replace(/^📌\s*/, '').trim();
+        content = content.replace(/`/g, '').replace(/\*/g, '').replace(/#/g, '').replace(/\\/g, '');
+        content = '📌 ' + content;
+        return (
+          <div key={idx} className="font-extrabold text-[13px] text-slate-800 mt-2 mb-1.5 font-title">
+            {content}
+          </div>
+        );
+      }
+
+      // 5. Code line item format: - `code`: or ▶️ code -> ▶️ code
+      if (content.startsWith('- `') || content.startsWith('-`') || content.startsWith('▶️')) {
+        content = content.replace(/-\s*`/, '').replace(/`/g, '').replace(/^-/, '').replace(/^▶️\s*/, '').trim();
+        content = content.replace(/\\/g, '');
+        content = '▶️ ' + content;
+        return (
+          <div key={idx} className="font-mono text-[11px] font-bold text-indigo-700 bg-indigo-50/50 p-2 px-3 rounded-xl border border-indigo-100/50 mt-3.5 mb-1.5 whitespace-pre-wrap leading-normal">
+            {content}
+          </div>
+        );
+      }
+
+      // 6. Generic bullet points: - content -> ▪️ content
+      if (content.startsWith('- ')) {
+        content = content.replace(/^-\s*/, '▪️ ').replace(/\*/g, '').replace(/`/g, '').replace(/#/g, '').replace(/\\/g, '').trim();
+      } else {
+        content = content.replace(/`/g, '').replace(/\*/g, '').replace(/#/g, '').replace(/\\/g, '');
+      }
+
+      // General paragraph
+      return (
+        <div key={idx} className="text-slate-700 leading-relaxed font-sans font-medium text-[13px] my-1 pl-1 whitespace-pre-wrap">
+          {content}
+        </div>
+      );
+    });
+  };
+
   const lineCount = code.split('\n').length;
   const lineNumbers = Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
 
@@ -1349,10 +1431,10 @@ export default function App() {
             <Cpu className="w-5.5 h-5.5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 font-title">
               VibeESP32
             </h1>
-            <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase">
+            <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase font-title">
               바이브코딩 IoT 제어 플랫폼
             </p>
           </div>
@@ -1362,7 +1444,7 @@ export default function App() {
         <div className="flex p-1 bg-slate-100 border border-slate-200 rounded-xl">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black font-title tracking-wide rounded-lg transition-all ${
               activeTab === 'dashboard'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1372,7 +1454,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('tools')}
-            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black font-title tracking-wide rounded-lg transition-all ${
               activeTab === 'tools'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1382,7 +1464,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black rounded-lg transition-all ${
+            className={`px-4 py-2 sm:px-6 sm:py-3 text-sm sm:text-base md:text-lg font-black font-title tracking-wide rounded-lg transition-all ${
               activeTab === 'history'
                 ? 'bg-white text-indigo-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
@@ -1415,7 +1497,7 @@ export default function App() {
               <div className="h-4 w-px bg-slate-200" />
               <button
                 onClick={handleSignOut}
-                className="flex items-center gap-1 text-slate-500 hover:text-rose-600 text-xs font-black transition-all active:scale-95 cursor-pointer"
+                className="flex items-center gap-1 text-slate-600 hover:text-rose-600 text-xs font-black font-title transition-all active:scale-95 cursor-pointer"
                 title="로그아웃"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -1425,7 +1507,7 @@ export default function App() {
           ) : (
             <button
               onClick={signInWithGoogle}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-black text-slate-700 shadow-sm transition-all active:scale-95 hover:border-slate-300 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-black font-title text-slate-700 shadow-sm transition-all active:scale-95 hover:border-slate-300 cursor-pointer"
             >
               <LogIn className="w-3.5 h-3.5 text-slate-500" />
               Google 로그인
@@ -1436,7 +1518,7 @@ export default function App() {
           <div className="flex items-center gap-3 bg-white border border-slate-200 p-1.5 px-3.5 rounded-2xl shadow-sm">
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-500 connected-glow' : 'bg-rose-400'}`} />
-              <span className="text-xs font-bold text-slate-600 hidden sm:inline">
+              <span className="text-xs font-extrabold text-slate-700 hidden sm:inline">
                 {isConnected ? '연결됨' : '미연결'}
               </span>
             </div>
@@ -1446,7 +1528,7 @@ export default function App() {
             {isConnected ? (
               <button
                 onClick={disconnectSerial}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-all active:scale-95 cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-extrabold font-title text-slate-700 transition-all active:scale-95 cursor-pointer"
               >
                 <CircuitBoard className="w-3.5 h-3.5 text-slate-500" />
                 연결 해제
@@ -1455,7 +1537,7 @@ export default function App() {
               <button
                 onClick={connectSerial}
                 disabled={activeTab === 'tools' && isFlashing}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white transition-all shadow-sm active:scale-95 disabled:opacity-40 cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-extrabold font-title text-white transition-all shadow-sm active:scale-95 disabled:opacity-40 cursor-pointer"
               >
                 <CircuitBoard className="w-3.5 h-3.5" />
                 ESP32 연결
@@ -1478,7 +1560,7 @@ export default function App() {
               <div className="bg-violet-50/80 border border-violet-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-violet-700">
                   <Zap className="w-5.5 h-5.5" />
-                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                     자연어 명령 입력
                   </h2>
                 </div>
@@ -1552,7 +1634,7 @@ export default function App() {
                 <div className="px-5 py-3 border-b border-emerald-100 flex justify-between items-center flex-shrink-0">
                   <div className="flex items-center gap-2 text-emerald-700">
                     <CodeIcon className="w-5.5 h-5.5" />
-                    <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                    <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                       MicroPython 소스코드
                     </h2>
                   </div>
@@ -1661,8 +1743,8 @@ export default function App() {
                   )}
 
                   {editorTab === 'explain' && (
-                    <div ref={explanationContainerRef} className="flex-grow overflow-y-auto h-full p-2 text-slate-700 leading-relaxed font-sans text-sm whitespace-pre-wrap outline-none">
-                      {explanation || '코드 설명이 아직 생성되지 않았습니다. 자연어 명령으로 코드를 생성해 보세요.'}
+                    <div ref={explanationContainerRef} className="flex-grow overflow-y-auto h-full p-2 text-slate-700 leading-relaxed font-sans text-sm outline-none">
+                      {renderExplanation(explanation)}
                     </div>
                   )}
 
@@ -1684,7 +1766,7 @@ export default function App() {
               <div className="bg-rose-50/80 border border-rose-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-2 text-rose-700">
                   <Play className="w-5.5 h-5.5" />
-                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                     보드 동작 제어
                   </h2>
                 </div>
@@ -1693,7 +1775,7 @@ export default function App() {
                   <button
                     onClick={() => runCode()}
                     disabled={!isConnected}
-                    className="flex items-center justify-center gap-2 py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95 disabled:pointer-events-none"
+                    className="flex items-center justify-center gap-2 py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-black font-title text-base transition-all shadow-sm active:scale-95 disabled:pointer-events-none cursor-pointer"
                   >
                     <Play className="w-4 h-4 fill-current" />
                     코드 실행 (Run)
@@ -1702,7 +1784,7 @@ export default function App() {
                   <button
                     onClick={stopCode}
                     disabled={!isConnected}
-                    className="flex items-center justify-center gap-2 py-3.5 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95 disabled:pointer-events-none"
+                    className="flex items-center justify-center gap-2 py-3.5 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-black font-title text-base transition-all shadow-sm active:scale-95 disabled:pointer-events-none cursor-pointer"
                   >
                     <Square className="w-4 h-4 fill-current" />
                     실행 중지 (Stop)
@@ -1733,7 +1815,7 @@ export default function App() {
                 <div className="px-4 py-3 border-b border-sky-100 flex justify-between items-center flex-shrink-0">
                   <div className="flex items-center gap-2 text-sky-700">
                     <TerminalIcon className="w-5.5 h-5.5" />
-                    <span className="text-lg sm:text-xl font-black tracking-wide">시리얼 모니터</span>
+                    <span className="text-lg sm:text-xl font-black tracking-wide font-title">시리얼 모니터</span>
                   </div>
 
                   <button
@@ -1771,7 +1853,7 @@ export default function App() {
               <div className="bg-violet-50/80 border border-violet-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-violet-700">
                   <Download className="w-5.5 h-5.5" />
-                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                     1. CP210x USB 드라이버 설치
                   </h2>
                 </div>
@@ -1803,7 +1885,7 @@ export default function App() {
               <div className="bg-rose-50/80 border border-rose-100/90 rounded-2xl p-5 flex flex-col gap-4 shadow-sm">
                 <div className="flex items-center gap-2 text-rose-700">
                   <Settings className="w-5.5 h-5.5" />
-                  <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                  <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                     2. MicroPython 펌웨어 설치 (Web Flasher)
                   </h2>
                 </div>
@@ -1885,7 +1967,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-700">
                     <HardDrive className="w-5.5 h-5.5" />
-                    <h2 className="text-lg sm:text-xl font-black tracking-wide">
+                    <h2 className="text-lg sm:text-xl font-black tracking-wide font-title">
                       3. 보드 파일 및 라이브러리 관리자
                     </h2>
                   </div>
@@ -2041,7 +2123,7 @@ export default function App() {
                   <History className="w-5.5 h-5.5" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold tracking-tight">작업 히스토리</h2>
+                  <h2 className="text-xl font-black tracking-tight font-title">작업 히스토리</h2>
                   <p className="text-xs text-slate-500">생성한 코드와 실행 로그를 확인하고 재실행합니다.</p>
                 </div>
               </div>
@@ -2077,7 +2159,7 @@ export default function App() {
                     <History className="w-10 h-10" />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <h3 className="text-lg font-bold text-slate-800">로그인이 필요합니다</h3>
+                    <h3 className="text-lg font-black text-slate-800 font-title">로그인이 필요합니다</h3>
                     <p className="text-xs text-slate-500 leading-relaxed px-4">
                       Google 계정으로 로그인하시면 VibeESP32에서 작업한 소스코드와 AI 프롬프트 생성 이력을 안전하게 클라우드에 보관하고 불러올 수 있습니다.
                     </p>
@@ -2095,7 +2177,7 @@ export default function App() {
                 <div className="bg-white border border-slate-200 border-dashed rounded-2xl p-12 py-16 text-center flex flex-col items-center justify-center gap-3">
                   <Clock className="w-10 h-10 text-slate-300" />
                   <div className="flex flex-col gap-1">
-                    <h3 className="text-base font-bold text-slate-700">저장된 기록이 없습니다</h3>
+                    <h3 className="text-base font-black text-slate-700 font-title">저장된 기록이 없습니다</h3>
                     <p className="text-xs text-slate-400 max-w-sm">
                       대시보드 탭에서 인공지능으로 새로운 코드를 생성하거나, 작성된 코드를 ESP32 보드에 실행하면 기록이 이곳에 자동으로 기록됩니다!
                     </p>
@@ -2119,7 +2201,7 @@ export default function App() {
                         <Info className="w-5 h-5" />
                       </div>
                       <div>
-                        <h4 className="text-sm font-bold">임시 로컬 히스토리 모드</h4>
+                        <h4 className="text-sm font-black font-title">임시 로컬 히스토리 모드</h4>
                         <p className="text-xs text-indigo-700/80 mt-0.5">현재 브라우저에 임시 저장 중입니다. 로그인하시면 클라우드에 평생 보관하실 수 있습니다.</p>
                       </div>
                     </div>
@@ -2184,7 +2266,7 @@ export default function App() {
 
                     {/* Prompt/Content Row */}
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">명령 및 내용</span>
+                      <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider font-title">명령 및 내용</span>
                       <p className="text-sm font-semibold text-slate-800 leading-relaxed whitespace-pre-line">
                         {item.prompt}
                       </p>
